@@ -1,0 +1,12 @@
+{% extends 'base.html' %}
+{% block title %}Nový servis{% endblock %}
+{% block content %}<div class="row justify-content-center"><div class="col-12 col-lg-7"><div class="card p-3 p-lg-4"><h1 class="h4 mb-1">Nový servisní záznam</h1><div class="text-muted mb-3">{{ vehicle.label }} ({{ vehicle.plate }})</div><form method="post"><div class="row g-3">
+<div class="col-md-6"><label class="form-label">Datum servisu *</label><input class="form-control" type="date" name="service_date" required value="{{ request.form.get('service_date','') }}"></div>
+<div class="col-md-6"><label class="form-label">Stav km</label><input class="form-control" type="number" min="0" name="odometer" value="{{ request.form.get('odometer', vehicle.odometer or '') }}"></div>
+<div class="col-12"><label class="form-label">Popis servisu *</label><textarea class="form-control" name="description" rows="3" required>{{ request.form.get('description','') }}</textarea></div>
+<div class="col-md-6"><label class="form-label">Další servis – datum</label><input class="form-control" type="date" name="next_date" value="{{ request.form.get('next_date','') }}"></div>
+<div class="col-md-6"><label class="form-label">Další servis – km</label><input class="form-control" type="number" min="0" name="next_odometer" value="{{ request.form.get('next_odometer','') }}"></div>
+<div class="col-md-6"><label class="form-label">Cena Kč</label><input class="form-control" inputmode="decimal" name="cost" value="{{ request.form.get('cost','') }}"></div>
+<div class="col-12"><label class="form-label">Poznámka</label><textarea class="form-control" name="note" rows="2">{{ request.form.get('note','') }}</textarea></div>
+<div class="col-12 d-flex gap-2"><button class="btn btn-primary">Uložit servis</button><a class="btn btn-outline-secondary" href="{{ url_for('vehicle_detail', vehicle_id=vehicle.id) }}">Zrušit</a></div>
+</div></form></div></div></div>{% endblock %}
