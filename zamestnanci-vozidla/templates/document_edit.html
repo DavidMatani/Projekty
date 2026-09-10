@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block title %}Upravit dokument{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card p-3 p-lg-4">
+      <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+        <div>
+          <h1 class="h4 mb-1">Upravit dokument</h1>
+          <div class="text-muted">{% if owner_type == 'employee' %}{{ owner.full_name }}{% else %}{{ owner.label }} ({{ owner.plate }}){% endif %}</div>
+          {% if side_label %}<div class="badge text-bg-secondary mt-2">{{ side_label }}</div>{% endif %}
+        </div>
+        {% if document.stored_name %}
+        <a class="btn btn-sm btn-outline-primary" target="_blank" href="{{ url_for('protected_file', stored_name=document.stored_name) }}">Otevřít současný soubor</a>
+        {% endif %}
+      </div>
+
+      <form method="post" enctype="multipart/form-data">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Typ dokumentu *</label>
+            <select class="form-select" name="doc_type" required>
+              {% for t in doc_types %}<option value="{{ t }}"{% if t == document.doc_type %} selected{% endif %}>{{ t }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Číslo dokumentu</label>
+            <input class="form-control" name="number" value="{{ document.number or '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Datum vydání</label>
+            <input class="form-control" type="date" name="issued_on" value="{{ document.issued_on.isoformat() if document.issued_on else '' }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Platnost do</label>
+            <input class="form-control" type="date" name="valid_until" value="{{ document.valid_until.isoformat() if document.valid_until else '' }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Nahradit soubor</label>
+            <input class="form-control" type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp">
+            <div class="form-text">Když nový soubor nevybereš, zůstane uložený současný soubor.</div>
+          </div>
+          <div class="col-12">
+            <label class="form-label">Poznámka</label>
+            <textarea class="form-control" name="note" rows="3">{{ clean_note }}</textarea>
+          </div>
+          <div class="col-12 d-flex flex-wrap gap-2">
+            <button class="btn btn-primary">Uložit změny</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('employee_detail', employee_id=owner.id) if owner_type == 'employee' else url_for('vehicle_detail', vehicle_id=owner.id) }}">Zrušit</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
