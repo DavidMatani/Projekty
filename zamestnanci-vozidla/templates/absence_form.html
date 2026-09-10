@@ -1,13 +1,52 @@
 {% extends 'base.html' %}
-{% block title %}Nová událost{% endblock %}
+{% set editing = edit_mode|default(false) %}
+{% set item = absence|default(none) %}
+{% block title %}{{ 'Upravit událost' if editing else 'Nová událost' }}{% endblock %}
 {% block content %}
-<div class="row justify-content-center"><div class="col-12 col-lg-7"><div class="card p-3 p-lg-4"><h1 class="h4 mb-1">Nová událost</h1><div class="text-muted mb-3">{{ employee.full_name }}</div><form method="post"><div class="row g-3">
-<div class="col-12"><label class="form-label">Typ *</label><select class="form-select" name="absence_type" required>{% for key,label in absence_types.items() %}<option value="{{ key }}">{{ label }}</option>{% endfor %}</select></div>
-<div class="col-md-6"><label class="form-label">Datum od *</label><input class="form-control" type="date" name="start_date" required value="{{ request.form.get('start_date','') }}"></div>
-<div class="col-md-6"><label class="form-label">Datum do *</label><input class="form-control" type="date" name="end_date" required value="{{ request.form.get('end_date','') }}"></div>
-<div class="col-md-6"><label class="form-label">Čas od <span class="text-muted">(volitelně)</span></label><input class="form-control" type="time" name="start_time" value="{{ request.form.get('start_time','') }}"></div>
-<div class="col-md-6"><label class="form-label">Čas do <span class="text-muted">(volitelně)</span></label><input class="form-control" type="time" name="end_time" value="{{ request.form.get('end_time','') }}"></div>
-<div class="col-12"><label class="form-label">Poznámka</label><textarea class="form-control" name="note" rows="3">{{ request.form.get('note','') }}</textarea></div>
-<div class="col-12 d-flex gap-2"><button class="btn btn-primary">Uložit do kalendáře</button><a class="btn btn-outline-secondary" href="{{ url_for('employee_detail', employee_id=employee.id) }}">Zrušit</a></div>
-</div></form></div></div></div>
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card p-3 p-lg-4">
+      <h1 class="h4 mb-1">{{ 'Upravit událost' if editing else 'Nová událost' }}</h1>
+      <div class="text-muted mb-3">{{ employee.full_name }}</div>
+      <form method="post">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label">Typ *</label>
+            {% set selected_type = request.form.get('absence_type', item.absence_type if item else '') %}
+            <select class="form-select" name="absence_type" required>
+              {% for key,label in absence_types.items() %}
+                <option value="{{ key }}"{% if selected_type == key %} selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-md-6">
+            <label class="form-label">Datum od *</label>
+            <input class="form-control" type="date" name="start_date" required value="{{ request.form.get('start_date', item.start_date.isoformat() if item and item.start_date else '') }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Datum do *</label>
+            <input class="form-control" type="date" name="end_date" required value="{{ request.form.get('end_date', item.end_date.isoformat() if item and item.end_date else '') }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Čas od <span class="text-muted">(volitelně)</span></label>
+            <input class="form-control" type="time" name="start_time" value="{{ request.form.get('start_time', item.start_time.strftime('%H:%M') if item and item.start_time else '') }}">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Čas do <span class="text-muted">(volitelně)</span></label>
+            <input class="form-control" type="time" name="end_time" value="{{ request.form.get('end_time', item.end_time.strftime('%H:%M') if item and item.end_time else '') }}">
+          </div>
+          <div class="col-12">
+            <label class="form-label">Poznámka</label>
+            <textarea class="form-control" name="note" rows="3">{{ request.form.get('note', item.note if item and item.note else '') }}</textarea>
+          </div>
+          <div class="col-12 d-flex gap-2 flex-wrap">
+            <button class="btn btn-primary">{{ 'Uložit změny' if editing else 'Uložit do kalendáře' }}</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('employee_detail', employee_id=employee.id) }}">Zrušit</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
