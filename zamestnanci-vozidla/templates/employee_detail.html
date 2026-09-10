@@ -28,7 +28,12 @@
               <td>{{ a.end_date.strftime('%d.%m.%Y') }}</td>
               <td>{% if a.start_time %}{{ a.start_time.strftime('%H:%M') }}{% if a.end_time %}–{{ a.end_time.strftime('%H:%M') }}{% endif %}{% else %}celý den{% endif %}</td>
               <td>{{ a.note or '—' }}</td>
-              <td class="text-end"><form method="post" action="{{ url_for('absence_delete', absence_id=a.id) }}" onsubmit="return confirm('Odstranit událost?')"><button class="btn btn-sm btn-outline-danger">Smazat</button></form></td>
+              <td class="text-end">
+                <div class="d-flex gap-2 justify-content-end flex-wrap">
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('absence_edit', absence_id=a.id) }}">Upravit</a>
+                  <form method="post" action="{{ url_for('absence_delete', absence_id=a.id) }}" onsubmit="return confirm('Odstranit událost?')"><button class="btn btn-sm btn-outline-danger">Smazat</button></form>
+                </div>
+              </td>
             </tr>
           {% else %}
             <tr><td colspan="6" class="text-muted">Žádné události.</td></tr>
