@@ -1,0 +1,9 @@
+{% extends 'base.html' %}
+{% block title %}Zaměstnanci{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center page-header mb-3"><div><h1 class="page-title h3">Zaměstnanci</h1><div class="text-muted">Evidence zaměstnanců a jejich dokumentů</div></div><a class="btn btn-primary" href="{{ url_for('employee_form') }}">+ Přidat zaměstnance</a></div>
+<div class="card p-2 p-lg-3">
+<div class="table-responsive desktop-table"><table class="table table-hover mb-0"><thead><tr><th>Jméno</th><th>Telefon</th><th>E-mail</th><th>Dovolená</th><th>Stav</th><th></th></tr></thead><tbody>{% for e in employees %}<tr><td><strong>{{ e.full_name }}</strong></td><td>{{ e.phone or '—' }}</td><td>{{ e.email or '—' }}</td><td>{{ e.vacation_entitlement|int if e.vacation_entitlement == e.vacation_entitlement|int else e.vacation_entitlement }} dní</td><td><span class="badge text-bg-{{ 'success' if e.active else 'secondary' }}">{{ 'Aktivní' if e.active else 'Neaktivní' }}</span></td><td class="text-end"><a class="btn btn-sm btn-outline-primary" href="{{ url_for('employee_detail', employee_id=e.id) }}">Detail</a></td></tr>{% else %}<tr><td colspan="6" class="text-muted">Zatím nejsou žádní zaměstnanci.</td></tr>{% endfor %}</tbody></table></div>
+{% for e in employees %}<div class="mobile-card border-bottom py-3"><div class="d-flex justify-content-between gap-2"><div><strong>{{ e.full_name }}</strong><div class="small text-muted">{{ e.phone or e.email or 'Bez kontaktu' }}</div></div><span class="badge text-bg-{{ 'success' if e.active else 'secondary' }} align-self-start">{{ 'Aktivní' if e.active else 'Neaktivní' }}</span></div><a class="btn btn-sm btn-outline-primary mt-2" href="{{ url_for('employee_detail', employee_id=e.id) }}">Otevřít</a></div>{% endfor %}
+</div>
+{% endblock %}
