@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Kalendář zaměstnanců{% endblock %}
+{% block title %}Kalendář zaměstnanců a vozidel{% endblock %}
 {% block head %}
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.21/index.global.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.21/locales-all.global.min.js"></script>
@@ -8,9 +8,9 @@
 <div class="employee-calendar-page">
   <div class="calendar-page-heading">
     <div>
-      <div class="calendar-eyebrow">PLÁN ZAMĚSTNANCŮ</div>
-      <h1 class="page-title h3">Kalendář zaměstnanců</h1>
-      <div class="text-muted">Dovolená, lékař, nemoc a další nepřítomnosti</div>
+      <div class="calendar-eyebrow">PLÁN A TERMÍNY</div>
+      <h1 class="page-title h3">Kalendář zaměstnanců a vozidel</h1>
+      <div class="text-muted">Nepřítomnosti zaměstnanců, kontroly dokumentů a servisní termíny vozidel</div>
     </div>
     <a class="btn btn-primary calendar-add-btn" href="{{ url_for('employees') }}">＋ Přidat událost</a>
   </div>
@@ -29,6 +29,11 @@
         <button type="button" data-calendar-view="timeGridWeek">Týden</button>
         <button type="button" class="active" data-calendar-view="dayGridMonth">Měsíc</button>
       </div>
+      <select id="sourceFilter" class="calendar-filter-select" aria-label="Filtrovat typ událostí">
+        <option value="all">Vše</option>
+        <option value="employees">Zaměstnanci</option>
+        <option value="vehicles">Vozidla</option>
+      </select>
       <select id="employeeFilter" class="calendar-filter-select" aria-label="Filtrovat zaměstnance">
         <option value="">Všichni zaměstnanci</option>
         {% for e in employees %}<option value="{{ e.id }}">{{ e.full_name }}</option>{% endfor %}
@@ -44,6 +49,9 @@
     <span><i style="--legend-color:#6f42c1"></i>Náhradní volno</span>
     <span><i style="--legend-color:#0dcaf0"></i>Služební cesta</span>
     <span><i style="--legend-color:#ffc107"></i>Překážka</span>
+    <span><i style="--legend-color:#b7791f"></i>Vozidlo – 30 dní předem</span>
+    <span><i style="--legend-color:#334155"></i>Vozidlo – termín</span>
+    <span><i style="--legend-color:#b42318"></i>Vozidlo – po termínu</span>
   </div>
 
   <div class="employee-calendar-card">
@@ -75,7 +83,8 @@
 {% block scripts %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
-  const filter = document.getElementById('employeeFilter');
+  const sourceFilter = document.getElementById('sourceFilter');
+  const employeeFilter = document.getElementById('employeeFilter');
   const rangeBtn = document.getElementById('rangeBtn');
   const viewButtons = Array.from(document.querySelectorAll('[data-calendar-view]'));
   const detailModal = new bootstrap.Modal(document.getElementById('absenceDetailModal'));
@@ -101,6 +110,12 @@ document.addEventListener('DOMContentLoaded', function () {
     viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.calendarView === info.view.type));
   }
 
+  function updateFilters() {
+    const vehiclesOnly = sourceFilter.value === 'vehicles';
+    employeeFilter.disabled = vehiclesOnly;
+    if (vehiclesOnly) employeeFilter.value = '';
+  }
+
   const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
     locale: 'cs',
     firstDay: 1,
@@ -117,15 +132,23 @@ document.addEventListener('DOMContentLoaded', function () {
     allDayText: 'Celý den',
     eventTimeFormat: {hour:'2-digit', minute:'2-digit', hour12:false},
     events: {
-      url: '{{ url_for("api_absences") }}',
-      extraParams: () => ({employee_id: filter.value})
+      url: '/api/calendar-events',
+      extraParams: () => ({
+        source: sourceFilter.value,
+        employee_id: sourceFilter.value === 'vehicles' ? '' : employeeFilter.value
+      })
     },
     datesSet: updateToolbar,
     eventDidMount: function(info) {
       const note = info.event.extendedProps.note;
-      info.el.title = note ? info.event.title + ' – ' + note : info.event.title;
+      info.el.title = note ? info.event.title + ' – ' + note.replace(/\n/g, ' · ') : info.event.title;
     },
     eventClick: function(info) {
+      if (info.event.extendedProps.event_kind === 'vehicle' && info.event.extendedProps.detail_url) {
+        window.location.href = info.event.extendedProps.detail_url;
+        return;
+      }
+
       document.getElementById('absenceModalTitle').textContent = info.event.title;
       document.getElementById('absenceModalWhen').textContent = formatEventWhen(info.event);
       const note = info.event.extendedProps.note || '';
@@ -136,12 +159,17 @@ document.addEventListener('DOMContentLoaded', function () {
     }
   });
 
+  updateFilters();
   calendar.render();
   document.getElementById('todayBtn').addEventListener('click', () => calendar.today());
   document.getElementById('prevBtn').addEventListener('click', () => calendar.prev());
   document.getElementById('nextBtn').addEventListener('click', () => calendar.next());
   viewButtons.forEach(btn => btn.addEventListener('click', () => calendar.changeView(btn.dataset.calendarView)));
-  filter.addEventListener('change', () => calendar.refetchEvents());
+  sourceFilter.addEventListener('change', () => {
+    updateFilters();
+    calendar.refetchEvents();
+  });
+  employeeFilter.addEventListener('change', () => calendar.refetchEvents());
 });
 </script>
 {% endblock %}
