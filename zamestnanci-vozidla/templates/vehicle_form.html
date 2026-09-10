@@ -8,7 +8,42 @@
 <div class="col-md-6"><label class="form-label">VIN</label><input class="form-control" name="vin" value="{{ vehicle.vin or '' }}"></div>
 <div class="col-md-3"><label class="form-label">Rok výroby</label><input class="form-control" type="number" name="year" value="{{ vehicle.year or '' }}"></div>
 <div class="col-md-3"><label class="form-label">Stav km</label><input class="form-control" type="number" min="0" name="odometer" value="{{ vehicle.odometer or 0 }}"></div>
+
+<div class="col-12"><hr class="my-1"><h2 class="h6 mb-0">Rozměry a objem</h2><div class="form-text">Rozměry v metrech, objem v m³.</div></div>
+<div class="col-md-3"><label class="form-label">Délka (m)</label><input id="vehicleLength" class="form-control" type="number" min="0" step="0.01" inputmode="decimal" name="length_m" value="{{ vehicle.length_m if vehicle.length_m is not none else '' }}"></div>
+<div class="col-md-3"><label class="form-label">Šířka (m)</label><input id="vehicleWidth" class="form-control" type="number" min="0" step="0.01" inputmode="decimal" name="width_m" value="{{ vehicle.width_m if vehicle.width_m is not none else '' }}"></div>
+<div class="col-md-3"><label class="form-label">Výška (m)</label><input id="vehicleHeight" class="form-control" type="number" min="0" step="0.01" inputmode="decimal" name="height_m" value="{{ vehicle.height_m if vehicle.height_m is not none else '' }}"></div>
+<div class="col-md-3"><label class="form-label">Objem (m³)</label><div class="input-group"><input id="vehicleVolume" class="form-control" type="number" min="0" step="0.01" inputmode="decimal" name="volume_m3" value="{{ vehicle.volume_m3 if vehicle.volume_m3 is not none else '' }}"><button id="calculateVolume" class="btn btn-outline-secondary" type="button" title="Dopočítat délka × šířka × výška">Dopočítat</button></div></div>
+
 <div class="col-12"><div class="form-check"><input class="form-check-input" type="checkbox" name="active" id="active" {% if vehicle.active is not false %}checked{% endif %}><label class="form-check-label" for="active">Aktivní vozidlo</label></div></div>
 <div class="col-12"><label class="form-label">Poznámka</label><textarea class="form-control" name="note" rows="3">{{ vehicle.note or '' }}</textarea></div>
 <div class="col-12 d-flex gap-2"><button class="btn btn-primary">Uložit</button><a class="btn btn-outline-secondary" href="{{ url_for('vehicle_detail', vehicle_id=vehicle.id) if vehicle.id else url_for('vehicles') }}">Zrušit</a></div>
 </div></form></div></div></div>{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const length = document.getElementById('vehicleLength');
+  const width = document.getElementById('vehicleWidth');
+  const height = document.getElementById('vehicleHeight');
+  const volume = document.getElementById('vehicleVolume');
+  const button = document.getElementById('calculateVolume');
+
+  function calculateVolume() {
+    const l = parseFloat(length.value);
+    const w = parseFloat(width.value);
+    const h = parseFloat(height.value);
+    if (Number.isFinite(l) && Number.isFinite(w) && Number.isFinite(h)) {
+      volume.value = (l * w * h).toFixed(2);
+    }
+  }
+
+  button.addEventListener('click', calculateVolume);
+  [length, width, height].forEach(input => {
+    input.addEventListener('change', function () {
+      if (!volume.value) calculateVolume();
+    });
+  });
+});
+</script>
+{% endblock %}
