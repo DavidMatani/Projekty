@@ -1,22 +1,147 @@
 {% extends 'base.html' %}
 {% block title %}Kalendář zaměstnanců{% endblock %}
-{% block head %}<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/index.global.min.js"></script><script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.19/locales/cs.global.min.js"></script>{% endblock %}
-{% block content %}
-<div class="d-flex justify-content-between align-items-center page-header mb-3"><div><h1 class="page-title h3">Kalendář zaměstnanců</h1><div class="text-muted">Dovolená, lékař, nemoc a další nepřítomnosti</div></div></div>
-<div class="card p-3"><div class="row g-2 align-items-end mb-3"><div class="col-12 col-md-5 col-lg-4"><label class="form-label">Zaměstnanec</label><select id="employeeFilter" class="form-select"><option value="">Všichni zaměstnanci</option>{% for e in employees %}<option value="{{ e.id }}">{{ e.full_name }}</option>{% endfor %}</select></div><div class="col-12 col-md-auto"><a class="btn btn-outline-primary" href="{{ url_for('employees') }}">Přidat událost přes zaměstnance</a></div></div><div id="calendar"></div></div>
+{% block head %}
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.21/index.global.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.21/locales-all.global.min.js"></script>
 {% endblock %}
-{% block scripts %}<script>
-document.addEventListener('DOMContentLoaded', function(){
-  const filter=document.getElementById('employeeFilter');
-  const calendar=new FullCalendar.Calendar(document.getElementById('calendar'),{
-    locale:'cs',firstDay:1,height:'auto',initialView:'dayGridMonth',
-    headerToolbar:{left:'dayGridMonth,timeGridWeek,timeGridDay',center:'title',right:'prev,today,next'},
-    buttonText:{today:'Dnes',month:'Měsíc',week:'Týden',day:'Den'},
-    events:{url:'{{ url_for("api_absences") }}',extraParams:()=>({employee_id:filter.value})},
-    eventDidMount:function(info){const note=info.event.extendedProps.note;if(note){info.el.title=note;}},
-    eventClick:function(info){if(info.event.extendedProps.note){alert(info.event.title+'\n\n'+info.event.extendedProps.note);}}
+{% block content %}
+<div class="employee-calendar-page">
+  <div class="calendar-page-heading">
+    <div>
+      <div class="calendar-eyebrow">PLÁN ZAMĚSTNANCŮ</div>
+      <h1 class="page-title h3">Kalendář zaměstnanců</h1>
+      <div class="text-muted">Dovolená, lékař, nemoc a další nepřítomnosti</div>
+    </div>
+    <a class="btn btn-primary calendar-add-btn" href="{{ url_for('employees') }}">＋ Přidat událost</a>
+  </div>
+
+  <section class="employee-calendar-toolbar">
+    <div class="calendar-toolbar-left">
+      <button class="calendar-today-btn" id="todayBtn" type="button">Dnes</button>
+      <button class="calendar-range-btn" id="rangeBtn" type="button" disabled>–</button>
+      <button class="calendar-nav-btn" id="prevBtn" type="button" aria-label="Předchozí">←</button>
+      <button class="calendar-nav-btn" id="nextBtn" type="button" aria-label="Další">→</button>
+    </div>
+
+    <div class="calendar-toolbar-right">
+      <div class="calendar-view-switch" role="group" aria-label="Zobrazení kalendáře">
+        <button type="button" data-calendar-view="timeGridDay">Den</button>
+        <button type="button" data-calendar-view="timeGridWeek">Týden</button>
+        <button type="button" class="active" data-calendar-view="dayGridMonth">Měsíc</button>
+      </div>
+      <select id="employeeFilter" class="calendar-filter-select" aria-label="Filtrovat zaměstnance">
+        <option value="">Všichni zaměstnanci</option>
+        {% for e in employees %}<option value="{{ e.id }}">{{ e.full_name }}</option>{% endfor %}
+      </select>
+    </div>
+  </section>
+
+  <div class="absence-legend" aria-label="Legenda kalendáře">
+    <span><i style="--legend-color:#198754"></i>Dovolená</span>
+    <span><i style="--legend-color:#0d6efd"></i>Lékař</span>
+    <span><i style="--legend-color:#dc3545"></i>Nemoc</span>
+    <span><i style="--legend-color:#fd7e14"></i>Školení</span>
+    <span><i style="--legend-color:#6f42c1"></i>Náhradní volno</span>
+    <span><i style="--legend-color:#0dcaf0"></i>Služební cesta</span>
+    <span><i style="--legend-color:#ffc107"></i>Překážka</span>
+  </div>
+
+  <div class="employee-calendar-card">
+    <div id="calendar"></div>
+  </div>
+</div>
+
+<div class="modal fade" id="absenceDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content calendar-detail-modal">
+      <div class="modal-header border-0 pb-1">
+        <div>
+          <div class="calendar-modal-eyebrow">UDÁLOST V KALENDÁŘI</div>
+          <h4 class="modal-title" id="absenceModalTitle">–</h4>
+        </div>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Zavřít"></button>
+      </div>
+      <div class="modal-body pt-2">
+        <div class="calendar-detail-row"><span>Termín</span><strong id="absenceModalWhen">–</strong></div>
+        <div class="calendar-detail-note d-none" id="absenceModalNoteWrap"><span>Poznámka</span><p id="absenceModalNote" class="mb-0"></p></div>
+      </div>
+      <div class="modal-footer border-0 pt-0">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Zavřít</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const filter = document.getElementById('employeeFilter');
+  const rangeBtn = document.getElementById('rangeBtn');
+  const viewButtons = Array.from(document.querySelectorAll('[data-calendar-view]'));
+  const detailModal = new bootstrap.Modal(document.getElementById('absenceDetailModal'));
+
+  const dateFormatter = new Intl.DateTimeFormat('cs-CZ', {day:'numeric', month:'long', year:'numeric'});
+  const dateTimeFormatter = new Intl.DateTimeFormat('cs-CZ', {day:'numeric', month:'numeric', year:'numeric', hour:'2-digit', minute:'2-digit'});
+
+  function formatEventWhen(event) {
+    if (!event.start) return '–';
+    if (event.allDay) {
+      const end = event.end ? new Date(event.end.getTime() - 86400000) : event.start;
+      const from = dateFormatter.format(event.start);
+      const to = dateFormatter.format(end);
+      return from === to ? from : from + ' – ' + to;
+    }
+    const from = dateTimeFormatter.format(event.start);
+    const to = event.end ? dateTimeFormatter.format(event.end) : '';
+    return to ? from + ' – ' + to : from;
+  }
+
+  function updateToolbar(info) {
+    rangeBtn.textContent = info.view.title;
+    viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.calendarView === info.view.type));
+  }
+
+  const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
+    locale: 'cs',
+    firstDay: 1,
+    initialView: 'dayGridMonth',
+    headerToolbar: false,
+    height: 'auto',
+    expandRows: true,
+    nowIndicator: true,
+    dayMaxEvents: 3,
+    moreLinkText: function(n){ return '+ ' + n + ' další'; },
+    slotMinTime: '05:00:00',
+    slotMaxTime: '22:00:00',
+    slotDuration: '00:30:00',
+    allDayText: 'Celý den',
+    eventTimeFormat: {hour:'2-digit', minute:'2-digit', hour12:false},
+    events: {
+      url: '{{ url_for("api_absences") }}',
+      extraParams: () => ({employee_id: filter.value})
+    },
+    datesSet: updateToolbar,
+    eventDidMount: function(info) {
+      const note = info.event.extendedProps.note;
+      info.el.title = note ? info.event.title + ' – ' + note : info.event.title;
+    },
+    eventClick: function(info) {
+      document.getElementById('absenceModalTitle').textContent = info.event.title;
+      document.getElementById('absenceModalWhen').textContent = formatEventWhen(info.event);
+      const note = info.event.extendedProps.note || '';
+      const noteWrap = document.getElementById('absenceModalNoteWrap');
+      document.getElementById('absenceModalNote').textContent = note;
+      noteWrap.classList.toggle('d-none', !note);
+      detailModal.show();
+    }
   });
+
   calendar.render();
-  filter.addEventListener('change',()=>calendar.refetchEvents());
+  document.getElementById('todayBtn').addEventListener('click', () => calendar.today());
+  document.getElementById('prevBtn').addEventListener('click', () => calendar.prev());
+  document.getElementById('nextBtn').addEventListener('click', () => calendar.next());
+  viewButtons.forEach(btn => btn.addEventListener('click', () => calendar.changeView(btn.dataset.calendarView)));
+  filter.addEventListener('change', () => calendar.refetchEvents());
 });
-</script>{% endblock %}
+</script>
+{% endblock %}
