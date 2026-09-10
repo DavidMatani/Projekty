@@ -61,6 +61,7 @@
                 {% if d.note and d.note.startswith('Přední strana') %}Přední strana{% elif d.note and d.note.startswith('Zadní strana') %}Zadní strana{% else %}Otevřít soubor{% endif %}
               </a>
             {% endif %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('employee_document_edit', document_id=d.id) }}">Upravit</a>
             <form method="post" action="{{ url_for('employee_document_delete', document_id=d.id) }}" onsubmit="return confirm('Odstranit dokument i nahraný soubor?')"><button class="btn btn-sm btn-outline-danger">Smazat</button></form>
           </div>
         </div>
