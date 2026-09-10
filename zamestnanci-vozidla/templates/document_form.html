@@ -1,13 +1,148 @@
 {% extends 'base.html' %}
 {% block title %}Nový dokument{% endblock %}
 {% block content %}
-<div class="row justify-content-center"><div class="col-12 col-lg-7"><div class="card p-3 p-lg-4"><h1 class="h4 mb-1">Nový dokument</h1><div class="text-muted mb-3">{% if owner_type == 'employee' %}{{ owner.full_name }}{% else %}{{ owner.label }} ({{ owner.plate }}){% endif %}</div><form method="post" enctype="multipart/form-data"><div class="row g-3">
-<div class="col-md-6"><label class="form-label">Typ dokumentu *</label><select class="form-select" name="doc_type" required>{% for t in doc_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}</select></div>
-<div class="col-md-6"><label class="form-label">Číslo dokumentu</label><input class="form-control" name="number"></div>
-<div class="col-md-6"><label class="form-label">Datum vydání</label><input class="form-control" type="date" name="issued_on"></div>
-<div class="col-md-6"><label class="form-label">Platnost do</label><input class="form-control" type="date" name="valid_until"></div>
-<div class="col-12"><label class="form-label">Soubor</label><input class="form-control" type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp"><div class="form-text">PDF nebo fotografie. Soubor se ukládá pouze na server, ne do GitHubu.</div></div>
-<div class="col-12"><label class="form-label">Poznámka</label><textarea class="form-control" name="note" rows="3"></textarea></div>
-<div class="col-12 d-flex gap-2"><button class="btn btn-primary">Uložit dokument</button><a class="btn btn-outline-secondary" href="{{ url_for('employee_detail', employee_id=owner.id) if owner_type == 'employee' else url_for('vehicle_detail', vehicle_id=owner.id) }}">Zrušit</a></div>
-</div></form></div></div></div>
+<div class="row justify-content-center">
+  <div class="col-12 col-lg-7">
+    <div class="card p-3 p-lg-4">
+      <h1 class="h4 mb-1">Nový dokument</h1>
+      <div class="text-muted mb-3">{% if owner_type == 'employee' %}{{ owner.full_name }}{% else %}{{ owner.label }} ({{ owner.plate }}){% endif %}</div>
+
+      <form id="documentForm" method="post" enctype="multipart/form-data">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Typ dokumentu *</label>
+            <select id="docType" class="form-select" name="doc_type" required>
+              {% for t in doc_types %}<option value="{{ t }}">{{ t }}</option>{% endfor %}
+            </select>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Číslo dokumentu</label>
+            <input class="form-control" name="number">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Datum vydání</label>
+            <input class="form-control" type="date" name="issued_on">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">Platnost do</label>
+            <input class="form-control" type="date" name="valid_until">
+          </div>
+
+          <div id="singleFileWrap" class="col-12">
+            <label class="form-label">Soubor</label>
+            <input id="singleFile" class="form-control" type="file" name="file" accept=".pdf,.png,.jpg,.jpeg,.webp">
+            <div class="form-text">PDF nebo fotografie. Soubor se ukládá pouze na server, ne do GitHubu.</div>
+          </div>
+
+          {% if owner_type == 'employee' %}
+          <div id="dualFileWrap" class="col-12 d-none">
+            <label class="form-label mb-2">Soubory dokladu *</label>
+            <div class="document-side-grid">
+              <div class="document-side-box">
+                <strong>Přední strana</strong>
+                <input id="frontFile" class="form-control" type="file" name="file_front" accept=".pdf,.png,.jpg,.jpeg,.webp">
+              </div>
+              <div class="document-side-box">
+                <strong>Zadní strana</strong>
+                <input id="backFile" class="form-control" type="file" name="file_back" accept=".pdf,.png,.jpg,.jpeg,.webp">
+              </div>
+            </div>
+            <div class="document-upload-hint">U občanského a řidičského průkazu se nahraje přední i zadní strana.</div>
+          </div>
+          {% endif %}
+
+          <div class="col-12">
+            <label class="form-label">Poznámka</label>
+            <textarea id="documentNote" class="form-control" name="note" rows="3"></textarea>
+          </div>
+          <div class="col-12 d-flex gap-2">
+            <button id="saveDocumentBtn" class="btn btn-primary">Uložit dokument</button>
+            <a id="cancelDocumentBtn" class="btn btn-outline-secondary" href="{{ url_for('employee_detail', employee_id=owner.id) if owner_type == 'employee' else url_for('vehicle_detail', vehicle_id=owner.id) }}">Zrušit</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
 {% endblock %}
+
+{% if owner_type == 'employee' %}
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const form = document.getElementById('documentForm');
+  const docType = document.getElementById('docType');
+  const singleWrap = document.getElementById('singleFileWrap');
+  const dualWrap = document.getElementById('dualFileWrap');
+  const singleFile = document.getElementById('singleFile');
+  const frontFile = document.getElementById('frontFile');
+  const backFile = document.getElementById('backFile');
+  const saveBtn = document.getElementById('saveDocumentBtn');
+  const cancelBtn = document.getElementById('cancelDocumentBtn');
+  const dualTypes = new Set(['Občanský průkaz', 'Řidičský průkaz']);
+
+  function isDualDocument() {
+    return dualTypes.has(docType.value);
+  }
+
+  function updateFileMode() {
+    const dual = isDualDocument();
+    dualWrap.classList.toggle('d-none', !dual);
+    singleWrap.classList.toggle('d-none', dual);
+    singleFile.disabled = dual;
+    frontFile.disabled = !dual;
+    backFile.disabled = !dual;
+    frontFile.required = dual;
+    backFile.required = dual;
+  }
+
+  async function uploadSide(baseData, file, sideLabel) {
+    const data = new FormData();
+    for (const [key, value] of baseData.entries()) data.append(key, value);
+    data.set('file', file);
+    const originalNote = data.get('note') || '';
+    data.set('note', sideLabel + (originalNote ? ' – ' + originalNote : ''));
+
+    const response = await fetch(form.action || window.location.href, {
+      method: 'POST',
+      body: data,
+      credentials: 'same-origin',
+      redirect: 'follow'
+    });
+    if (!response.ok) throw new Error('Nahrání souboru selhalo.');
+  }
+
+  docType.addEventListener('change', updateFileMode);
+  updateFileMode();
+
+  form.addEventListener('submit', async function (event) {
+    if (!isDualDocument()) return;
+
+    event.preventDefault();
+    if (!frontFile.files[0] || !backFile.files[0]) {
+      alert('Vyber přední i zadní stranu dokladu.');
+      return;
+    }
+
+    saveBtn.disabled = true;
+    saveBtn.textContent = 'Ukládám…';
+
+    const baseData = new FormData(form);
+    baseData.delete('file');
+    baseData.delete('file_front');
+    baseData.delete('file_back');
+
+    try {
+      await uploadSide(baseData, frontFile.files[0], 'Přední strana');
+      await uploadSide(baseData, backFile.files[0], 'Zadní strana');
+      window.location.href = cancelBtn.href;
+    } catch (error) {
+      alert(error.message || 'Dokument se nepodařilo uložit.');
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Uložit dokument';
+    }
+  });
+});
+</script>
+{% endblock %}
+{% endif %}
