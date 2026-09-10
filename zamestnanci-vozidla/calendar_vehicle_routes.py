@@ -45,6 +45,7 @@ def register_calendar_vehicle_routes(
         end = _parse_date((request.args.get("end") or "")[:10])
         source = (request.args.get("source") or "all").lower()
         employee_id = request.args.get("employee_id", type=int)
+        vehicle_id = request.args.get("vehicle_id", type=int)
         events = []
 
         if source in {"all", "employees"}:
@@ -82,6 +83,8 @@ def register_calendar_vehicle_routes(
             today = date.today()
 
             document_query = VehicleDocument.query.filter(VehicleDocument.valid_until.isnot(None))
+            if vehicle_id:
+                document_query = document_query.filter(VehicleDocument.vehicle_id == vehicle_id)
             if start:
                 document_query = document_query.filter(VehicleDocument.valid_until >= start)
             if end:
@@ -130,6 +133,8 @@ def register_calendar_vehicle_routes(
                     })
 
             service_query = VehicleService.query.filter(VehicleService.next_date.isnot(None))
+            if vehicle_id:
+                service_query = service_query.filter(VehicleService.vehicle_id == vehicle_id)
             if start:
                 service_query = service_query.filter(VehicleService.next_date >= start)
             if end:
