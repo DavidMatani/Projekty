@@ -66,8 +66,8 @@
 </div>
 {% endblock %}
 
-{% if owner_type == 'employee' %}
 {% block scripts %}
+{% if owner_type == 'employee' %}
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   const form = document.getElementById('documentForm');
@@ -144,5 +144,5 @@ document.addEventListener('DOMContentLoaded', function () {
   });
 });
 </script>
-{% endblock %}
 {% endif %}
+{% endblock %}
