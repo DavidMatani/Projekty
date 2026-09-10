@@ -38,6 +38,10 @@
         <option value="">Všichni zaměstnanci</option>
         {% for e in employees %}<option value="{{ e.id }}">{{ e.full_name }}</option>{% endfor %}
       </select>
+      <select id="vehicleFilter" class="calendar-filter-select" aria-label="Filtrovat vozidla">
+        <option value="">Všechna vozidla</option>
+        {% for v in vehicles %}<option value="{{ v.id }}">{{ v.label }} · {{ v.plate }}</option>{% endfor %}
+      </select>
     </div>
   </section>
 
@@ -86,6 +90,7 @@
 document.addEventListener('DOMContentLoaded', function () {
   const sourceFilter = document.getElementById('sourceFilter');
   const employeeFilter = document.getElementById('employeeFilter');
+  const vehicleFilter = document.getElementById('vehicleFilter');
   const rangeBtn = document.getElementById('rangeBtn');
   const editBtn = document.getElementById('absenceEditBtn');
   const viewButtons = Array.from(document.querySelectorAll('[data-calendar-view]'));
@@ -114,8 +119,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function updateFilters() {
     const vehiclesOnly = sourceFilter.value === 'vehicles';
+    const employeesOnly = sourceFilter.value === 'employees';
+
     employeeFilter.disabled = vehiclesOnly;
+    vehicleFilter.disabled = employeesOnly;
+
     if (vehiclesOnly) employeeFilter.value = '';
+    if (employeesOnly) vehicleFilter.value = '';
   }
 
   const calendar = new FullCalendar.Calendar(document.getElementById('calendar'), {
@@ -137,7 +147,8 @@ document.addEventListener('DOMContentLoaded', function () {
       url: '/api/calendar-events',
       extraParams: () => ({
         source: sourceFilter.value,
-        employee_id: sourceFilter.value === 'vehicles' ? '' : employeeFilter.value
+        employee_id: sourceFilter.value === 'vehicles' ? '' : employeeFilter.value,
+        vehicle_id: sourceFilter.value === 'employees' ? '' : vehicleFilter.value
       })
     },
     datesSet: updateToolbar,
@@ -182,6 +193,7 @@ document.addEventListener('DOMContentLoaded', function () {
     calendar.refetchEvents();
   });
   employeeFilter.addEventListener('change', () => calendar.refetchEvents());
+  vehicleFilter.addEventListener('change', () => calendar.refetchEvents());
 });
 </script>
 {% endblock %}
