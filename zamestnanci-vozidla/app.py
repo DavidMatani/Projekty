@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import or_
+from sqlalchemy import inspect, or_, text
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
 
@@ -131,6 +131,10 @@ class Vehicle(db.Model):
     vin = db.Column(db.String(100))
     year = db.Column(db.Integer)
     odometer = db.Column(db.Integer, default=0)
+    length_m = db.Column(db.Float)
+    width_m = db.Column(db.Float)
+    height_m = db.Column(db.Float)
+    volume_m3 = db.Column(db.Float)
     active = db.Column(db.Boolean, default=True, nullable=False)
     note = db.Column(db.Text)
     documents = db.relationship("VehicleDocument", backref="vehicle", cascade="all, delete-orphan", lazy=True)
@@ -173,6 +177,11 @@ def parse_date(value):
 
 def parse_time(value):
     return datetime.strptime(value, "%H:%M").time() if value else None
+
+
+def parse_float(value):
+    value = (value or "").strip().replace(",", ".")
+    return float(value) if value else None
 
 
 def allowed_file(filename):
@@ -422,6 +431,16 @@ def vehicle_form(vehicle_id=None):
         vehicle.vin = request.form.get("vin", "").strip().upper()
         vehicle.year = int(request.form.get("year")) if request.form.get("year") else None
         vehicle.odometer = int(request.form.get("odometer") or 0)
+        try:
+            vehicle.length_m = parse_float(request.form.get("length_m"))
+            vehicle.width_m = parse_float(request.form.get("width_m"))
+            vehicle.height_m = parse_float(request.form.get("height_m"))
+            vehicle.volume_m3 = parse_float(request.form.get("volume_m3"))
+        except ValueError:
+            flash("Rozměry a objem musí být čísla.", "danger")
+            return render_template("vehicle_form.html", vehicle=vehicle)
+        if vehicle.volume_m3 is None and all(v is not None for v in (vehicle.length_m, vehicle.width_m, vehicle.height_m)):
+            vehicle.volume_m3 = round(vehicle.length_m * vehicle.width_m * vehicle.height_m, 2)
         vehicle.active = request.form.get("active") == "on"
         vehicle.note = request.form.get("note", "").strip()
         if not vehicle.label or not vehicle.plate:
@@ -587,8 +606,27 @@ def api_absences():
     return jsonify(events)
 
 
+def ensure_vehicle_dimension_columns():
+    required = {
+        "length_m": "DOUBLE PRECISION",
+        "width_m": "DOUBLE PRECISION",
+        "height_m": "DOUBLE PRECISION",
+        "volume_m3": "DOUBLE PRECISION",
+    }
+    inspector = inspect(db.engine)
+    existing = {column["name"] for column in inspector.get_columns("vehicle")}
+    dialect = db.engine.dialect.name
+    for column_name, pg_type in required.items():
+        if column_name in existing:
+            continue
+        sql_type = "REAL" if dialect == "sqlite" else pg_type
+        db.session.execute(text(f"ALTER TABLE vehicle ADD COLUMN {column_name} {sql_type}"))
+    db.session.commit()
+
+
 with app.app_context():
     db.create_all()
+    ensure_vehicle_dimension_columns()
 UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
 
