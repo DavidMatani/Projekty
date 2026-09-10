@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}{{ 'První nastavení' if setup_mode else 'Přihlášení' }}{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-4 mt-lg-5"><div class="col-12 col-md-6 col-lg-4">
+<div class="card p-4">
+<h1 class="h4 mb-3">{{ 'Vytvořit prvního správce' if setup_mode else 'Přihlášení' }}</h1>
+<form method="post">
+  <div class="mb-3"><label class="form-label">Uživatelské jméno</label><input class="form-control" name="username" required autocomplete="username"></div>
+  <div class="mb-3"><label class="form-label">Heslo</label><input class="form-control" type="password" name="password" required autocomplete="{{ 'new-password' if setup_mode else 'current-password' }}"></div>
+  {% if setup_mode %}<div class="mb-3"><label class="form-label">Heslo znovu</label><input class="form-control" type="password" name="password2" required autocomplete="new-password"></div>{% endif %}
+  <button class="btn btn-primary w-100">{{ 'Vytvořit správce' if setup_mode else 'Přihlásit' }}</button>
+</form>
+</div></div></div>
+{% endblock %}
