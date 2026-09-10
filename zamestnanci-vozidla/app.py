@@ -569,7 +569,8 @@ def protected_file(stored_name):
 @login_required
 def calendar_view():
     employees = Employee.query.filter_by(active=True).order_by(Employee.last_name, Employee.first_name).all()
-    return render_template("calendar.html", employees=employees)
+    vehicles = Vehicle.query.filter_by(active=True).order_by(Vehicle.label, Vehicle.plate).all()
+    return render_template("calendar.html", employees=employees, vehicles=vehicles)
 
 
 @app.route("/api/absences")
