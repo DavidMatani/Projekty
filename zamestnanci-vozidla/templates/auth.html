@@ -5,6 +5,7 @@
 <div class="card p-4">
 <h1 class="h4 mb-3">{{ 'Vytvořit prvního správce' if setup_mode else 'Přihlášení' }}</h1>
 <form method="post">
+  <input type="hidden" name="csrf_token" value="{{ auth_csrf_token }}">
   <div class="mb-3"><label class="form-label">Uživatelské jméno</label><input class="form-control" name="username" required autocomplete="username"></div>
   <div class="mb-3"><label class="form-label">Heslo</label><input class="form-control" type="password" name="password" required autocomplete="{{ 'new-password' if setup_mode else 'current-password' }}"></div>
   {% if setup_mode %}<div class="mb-3"><label class="form-label">Heslo znovu</label><input class="form-control" type="password" name="password2" required autocomplete="new-password"></div>{% endif %}
