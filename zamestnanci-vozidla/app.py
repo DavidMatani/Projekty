@@ -1,10 +1,14 @@
+import hashlib
+import hmac
 import os
+import secrets
+import time
 import uuid
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 from dotenv import load_dotenv
-from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, url_for
+from flask import Flask, abort, flash, jsonify, redirect, render_template, request, send_from_directory, session, url_for
 from flask_login import LoginManager, UserMixin, current_user, login_required, login_user, logout_user
 from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import inspect, or_, text
@@ -22,6 +26,10 @@ app.config["SECRET_KEY"] = os.getenv("SECRET_KEY", "change-this-secret-key")
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv("DATABASE_URL", "sqlite:///zamestnanci_vozidla.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["MAX_CONTENT_LENGTH"] = int(os.getenv("MAX_CONTENT_LENGTH_MB", "16")) * 1024 * 1024
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = os.getenv("SESSION_COOKIE_SECURE", "0") == "1"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(hours=8)
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -78,6 +86,14 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+
+
+class LoginAttempt(db.Model):
+    attempt_key = db.Column(db.String(64), primary_key=True)
+    failures = db.Column(db.Integer, nullable=False, default=0)
+    window_started = db.Column(db.Integer, nullable=False)
+    blocked_until = db.Column(db.Integer, nullable=False, default=0)
+    updated_at = db.Column(db.Integer, nullable=False)
 
 
 class Employee(db.Model):
@@ -171,6 +187,77 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 
+def _login_client_ip():
+    cf_ip = (request.headers.get("CF-Connecting-IP") or "").strip()
+    if cf_ip:
+        return cf_ip[:128]
+    forwarded = (request.headers.get("X-Forwarded-For") or "").split(",", 1)[0].strip()
+    return (forwarded or request.remote_addr or "unknown")[:128]
+
+
+def _login_attempt_keys(username):
+    ip = _login_client_ip()
+    normalized = (username or "").strip().casefold()[:160]
+    return (
+        (hashlib.sha256(f"pair|{ip}|{normalized}".encode()).hexdigest(), 5),
+        (hashlib.sha256(f"ip|{ip}".encode()).hexdigest(), 20),
+    )
+
+
+def _login_blocked_for(username):
+    now = int(time.time())
+    remaining = 0
+    for attempt_key, _limit in _login_attempt_keys(username):
+        row = db.session.get(LoginAttempt, attempt_key)
+        if row is None:
+            continue
+        if row.blocked_until > now:
+            remaining = max(remaining, row.blocked_until - now)
+        elif row.window_started <= now - 900:
+            db.session.delete(row)
+    LoginAttempt.query.filter(LoginAttempt.updated_at < now - 86400).delete(synchronize_session=False)
+    db.session.commit()
+    return remaining
+
+
+def _record_login_failure(username):
+    now = int(time.time())
+    for attempt_key, limit in _login_attempt_keys(username):
+        row = db.session.get(LoginAttempt, attempt_key)
+        if row is None:
+            row = LoginAttempt(attempt_key=attempt_key, failures=0, window_started=now, blocked_until=0, updated_at=now)
+            db.session.add(row)
+        if row.window_started <= now - 900:
+            row.failures = 1
+            row.window_started = now
+        else:
+            row.failures += 1
+        row.blocked_until = now + 900 if row.failures >= limit else 0
+        row.updated_at = now
+    db.session.commit()
+
+
+def _clear_login_failures(username):
+    keys = [key for key, _limit in _login_attempt_keys(username)]
+    LoginAttempt.query.filter(LoginAttempt.attempt_key.in_(keys)).delete(synchronize_session=False)
+    db.session.commit()
+
+
+def _auth_csrf_token():
+    token = session.get("auth_csrf_token")
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session["auth_csrf_token"] = token
+    return token
+
+
+def _verify_auth_csrf():
+    supplied = request.form.get("csrf_token", "")
+    stored = session.get("auth_csrf_token", "")
+    if not supplied or not stored or not hmac.compare_digest(supplied, stored):
+        abort(400, "Neplatný bezpečnostní token formuláře.")
+
+
 def parse_date(value):
     return datetime.strptime(value, "%Y-%m-%d").date() if value else None
 
@@ -215,9 +302,24 @@ def document_status(valid_until):
     return "success", "Platný"
 
 
+@app.after_request
+def security_response_headers(response):
+    if request.path.startswith(("/login", "/setup")):
+        response.headers["X-Robots-Tag"] = "noindex, nofollow, noarchive"
+        response.headers["Cache-Control"] = "no-store, private"
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "same-origin")
+    forwarded_proto = (request.headers.get("X-Forwarded-Proto") or "").split(",", 1)[0].strip().lower()
+    if request.is_secure or forwarded_proto == "https":
+        response.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    return response
+
+
 @app.context_processor
 def inject_helpers():
     return {
+        "auth_csrf_token": _auth_csrf_token(),
         "absence_types": ABSENCE_TYPES,
         "employee_doc_types": EMPLOYEE_DOC_TYPES,
         "vehicle_doc_types": VEHICLE_DOC_TYPES,
@@ -240,20 +342,23 @@ def setup():
     if User.query.first():
         return redirect(url_for("login"))
     if request.method == "POST":
+        _verify_auth_csrf()
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         password2 = request.form.get("password2", "")
         if len(username) < 3:
             flash("Uživatelské jméno musí mít alespoň 3 znaky.", "danger")
-        elif len(password) < 8:
-            flash("Heslo musí mít alespoň 8 znaků.", "danger")
+        elif len(password) < 10:
+            flash("Heslo musí mít alespoň 10 znaků.", "danger")
         elif password != password2:
             flash("Hesla se neshodují.", "danger")
         else:
             user = User(username=username, password_hash=generate_password_hash(password))
             db.session.add(user)
             db.session.commit()
+            session.clear()
             login_user(user)
+            session.permanent = True
             flash("První správce byl vytvořen.", "success")
             return redirect(url_for("dashboard"))
     return render_template("auth.html", setup_mode=True)
@@ -264,10 +369,21 @@ def login():
     if current_user.is_authenticated:
         return redirect(url_for("dashboard"))
     if request.method == "POST":
-        user = User.query.filter_by(username=request.form.get("username", "").strip()).first()
-        if user and check_password_hash(user.password_hash, request.form.get("password", "")):
+        _verify_auth_csrf()
+        username = request.form.get("username", "").strip()
+        password = request.form.get("password", "")
+        blocked_for = _login_blocked_for(username)
+        if blocked_for:
+            flash("Příliš mnoho chybných pokusů. Přihlášení je dočasně zablokované.", "danger")
+            return render_template("auth.html", setup_mode=False), 429, {"Retry-After": str(blocked_for)}
+        user = User.query.filter_by(username=username).first()
+        if user and check_password_hash(user.password_hash, password):
+            _clear_login_failures(username)
+            session.clear()
             login_user(user)
+            session.permanent = True
             return redirect(url_for("dashboard"))
+        _record_login_failure(username)
         flash("Neplatné přihlašovací údaje.", "danger")
     return render_template("auth.html", setup_mode=False)
 
