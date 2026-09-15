@@ -18,7 +18,10 @@
   <section class="employee-calendar-toolbar">
     <div class="calendar-toolbar-left">
       <button class="calendar-today-btn" id="todayBtn" type="button">Dnes</button>
-      <button class="calendar-range-btn" id="rangeBtn" type="button" disabled>–</button>
+      <div class="calendar-range-date-picker">
+        <button class="calendar-range-btn" id="rangeBtn" type="button" tabindex="-1" aria-hidden="true">–</button>
+        <input id="calendarDatePicker" class="calendar-range-date-input" type="date" aria-label="Vybrat konkrétní datum" title="Vyberte konkrétní datum">
+      </div>
       <button class="calendar-nav-btn" id="prevBtn" type="button" aria-label="Předchozí">←</button>
       <button class="calendar-nav-btn" id="nextBtn" type="button" aria-label="Další">→</button>
     </div>
@@ -92,6 +95,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const employeeFilter = document.getElementById('employeeFilter');
   const vehicleFilter = document.getElementById('vehicleFilter');
   const rangeBtn = document.getElementById('rangeBtn');
+  const calendarDatePicker = document.getElementById('calendarDatePicker');
   const editBtn = document.getElementById('absenceEditBtn');
   const viewButtons = Array.from(document.querySelectorAll('[data-calendar-view]'));
   const detailModal = new bootstrap.Modal(document.getElementById('absenceDetailModal'));
@@ -114,6 +118,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
   function updateToolbar(info) {
     rangeBtn.textContent = info.view.title;
+    if (calendarDatePicker) {
+      const current = calendar.getDate();
+      const year = current.getFullYear();
+      const month = String(current.getMonth() + 1).padStart(2, '0');
+      const day = String(current.getDate()).padStart(2, '0');
+      calendarDatePicker.value = year + '-' + month + '-' + day;
+    }
     viewButtons.forEach(btn => btn.classList.toggle('active', btn.dataset.calendarView === info.view.type));
   }
 
@@ -185,6 +196,10 @@ document.addEventListener('DOMContentLoaded', function () {
   updateFilters();
   calendar.render();
   document.getElementById('todayBtn').addEventListener('click', () => calendar.today());
+  calendarDatePicker?.addEventListener('change', () => {
+    if (!calendarDatePicker.value) return;
+    calendar.gotoDate(calendarDatePicker.value);
+  });
   document.getElementById('prevBtn').addEventListener('click', () => calendar.prev());
   document.getElementById('nextBtn').addEventListener('click', () => calendar.next());
   viewButtons.forEach(btn => btn.addEventListener('click', () => calendar.changeView(btn.dataset.calendarView)));
