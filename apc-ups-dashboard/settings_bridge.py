@@ -18,6 +18,8 @@ BRIDGE_TOKEN = os.environ.get("UPS_BRIDGE_TOKEN", "").strip()
 SOCKET_GID = int(os.environ.get("UPS_BRIDGE_GID", "10001"))
 
 ALLOWED = {
+    # Power-failure behaviour
+    "ONBATTERYDELAY": ("int", 0, 3600),
     "BATTERYLEVEL": ("int", 0, 100),
     "MINUTES": ("int", 0, 120),
     "TIMEOUT": ("int", 0, 86400),
@@ -25,6 +27,15 @@ ALLOWED = {
     "ANNOYDELAY": ("int", 0, 86400),
     "KILLDELAY": ("int", 0, 86400),
     "NOLOGON": ("choice", {"disable", "timeout", "percent", "minutes", "always"}),
+
+    # Safe daemon/monitoring options. Network settings are intentionally
+    # excluded because the Docker dashboard depends on 127.0.0.1:3551.
+    "POLLTIME": ("int", 1, 3600),
+    "EVENTSFILEMAX": ("int", 1, 10240),
+    "STATTIME": ("int", 0, 86400),
+    "DATATIME": ("int", 0, 86400),
+    "LOGSTATS": ("choice", {"on", "off"}),
+    "UPSNAME": ("name",),
 }
 
 
@@ -40,9 +51,15 @@ def validate(key: str, value: str) -> str:
         if not spec[1] <= number <= spec[2]:
             raise ValueError(f"{key}: povolený rozsah je {spec[1]}–{spec[2]}.")
         return str(number)
-    if value not in spec[1]:
-        raise ValueError(f"{key}: nepovolená hodnota.")
-    return value
+    if spec[0] == "choice":
+        if value not in spec[1]:
+            raise ValueError(f"{key}: nepovolená hodnota.")
+        return value
+    if spec[0] == "name":
+        if not re.fullmatch(r"[A-Za-z0-9_.-]{1,8}", value):
+            raise ValueError(f"{key}: použij 1–8 znaků A-Z, a-z, 0-9, tečku, pomlčku nebo podtržítko.")
+        return value
+    raise ValueError(f"{key}: neznámý typ nastavení.")
 
 
 def read_config() -> dict[str, str]:
