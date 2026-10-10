@@ -52,15 +52,24 @@ je chráněná uživatelským jménem a heslem.
 
 Bezpečně lze měnit tyto parametry `apcupsd`:
 
+- `ONBATTERYDELAY`,
 - `BATTERYLEVEL`,
 - `MINUTES`,
 - `TIMEOUT`,
 - `KILLDELAY`,
 - `ANNOY`,
 - `ANNOYDELAY`,
-- `NOLOGON`.
+- `NOLOGON`,
+- `UPSNAME`,
+- `POLLTIME`,
+- `EVENTSFILEMAX`,
+- `STATTIME`,
+- `DATATIME`,
+- `LOGSTATS`.
 
 Hodnoty se na hostiteli validují. Před změnou vznikne záloha konfigurace a po změně se restartuje `apcupsd`. Pokud restart selže, bridge vrátí původní konfiguraci.
+
+Síťové parametry `NETSERVER`, `NISIP` a `NISPORT` zůstávají záměrně uzamčené, protože Docker dashboard používá lokální NIS spojení `127.0.0.1:3551`.
 
 Nastavení uložená přímo ve firmware UPS, například citlivost, přepínací napětí, alarm nebo datum baterie, se zobrazují, ale automaticky se přes web nemění. U tohoto typu APC se nastavují interaktivním `apctest` a podporované volby závisí na konkrétním firmware.
 
@@ -99,7 +108,7 @@ Instalátor automaticky:
 
 - zastaví a odstraní starou nekontejnerovou službu `apc-ups-dashboard.service`,
 - nastaví lokální NIS rozhraní `apcupsd`,
-- sestaví image `apc-ups-dashboard:2.1`,
+- sestaví image `apc-ups-dashboard:2.2`,
 - nainstaluje a spustí `apc-ups-settings-bridge.service`,
 - spustí kontejner s `restart: unless-stopped`,
 - zachová historii v `/var/lib/apc-ups-dashboard`,
