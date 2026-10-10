@@ -203,6 +203,18 @@ def apply_firmware_setting(setting: str, value: str) -> dict[str, str]:
 
     with _WRITE_LOCK:
         before = _require_usb_online()
+
+        if setting == "low_transfer":
+            requested = int(value)
+            current_high = int(float(before.get("HITRANS", "0").split()[0])) if before.get("HITRANS") else 0
+            if current_high and requested >= current_high:
+                raise ValueError(f"Dolní mez musí být nižší než aktuální horní mez {current_high} V.")
+        elif setting == "high_transfer":
+            requested = int(value)
+            current_low = int(float(before.get("LOTRANS", "0").split()[0])) if before.get("LOTRANS") else 0
+            if current_low and requested <= current_low:
+                raise ValueError(f"Horní mez musí být vyšší než aktuální dolní mez {current_low} V.")
+
         was_active = subprocess.run(
             ["/bin/systemctl", "is-active", "--quiet", "apcupsd.service"],
             check=False,
