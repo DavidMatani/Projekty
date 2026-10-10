@@ -18,7 +18,7 @@ from pathlib import Path
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, session, url_for
 from werkzeug.security import check_password_hash
 
-APP_VERSION = "2.2-docker"
+APP_VERSION = "2.3-docker"
 APC = shutil.which("apcaccess") or "/usr/sbin/apcaccess"
 APC_HOST = os.environ.get("UPS_APC_HOST", "127.0.0.1:3551").strip()
 SETTINGS_SOCKET = os.environ.get("UPS_SETTINGS_SOCKET", "/run/apc-ups-dashboard/settings.sock")
@@ -239,7 +239,7 @@ def bridge_request(action: str, **payload_fields) -> dict:
     request_data = {"token": BRIDGE_TOKEN, "action": action, **payload_fields}
     payload = (json.dumps(request_data, separators=(",", ":")) + "\n").encode("utf-8")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(20)
+        sock.settimeout(70)
         sock.connect(SETTINGS_SOCKET)
         sock.sendall(payload)
         chunks = []
@@ -289,12 +289,18 @@ update();loadHistory();loadEvents();loadOutages();setInterval(update,5000);setIn
 
 LOGIN = r'''<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UPS – přihlášení</title><style>body{font-family:system-ui;background:#07101f;color:#fff;display:grid;place-items:center;min-height:100vh;margin:0}.box{width:min(420px,92vw);background:#121f35;padding:26px;border-radius:18px}input,button{width:100%;padding:12px;margin:7px 0;border-radius:10px;border:1px solid #ffffff22;background:#0d1829;color:#fff}button{background:#285ca8;font-weight:800}.err{color:#ff8e96}</style></head><body><form class="box" method="post"><h1>Nastavení UPS</h1><p>Přihlášení správce.</p>{% with m=get_flashed_messages() %}{% if m %}<p class="err">{{m[-1]}}</p>{% endif %}{% endwith %}<input type="hidden" name="csrf" value="{{csrf}}"><input name="username" autocomplete="username" placeholder="Uživatel" required><input name="password" type="password" autocomplete="current-password" placeholder="Heslo" required><button>Přihlásit</button><p><a style="color:#9bc7ff" href="/">← Zpět na dashboard</a></p></form></body></html>'''
 
-ADMIN = r'''<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UPS – nastavení</title><style>body{font-family:system-ui;background:#07101f;color:#fff;margin:0}.wrap{max-width:850px;margin:auto;padding:25px 16px}.card{background:#121f35;padding:20px;border-radius:18px;margin-bottom:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:block;color:#a8b6ca}input,select,button{width:100%;padding:11px;margin-top:5px;border-radius:9px;border:1px solid #ffffff22;background:#0d1829;color:#fff}button{background:#285ca8;font-weight:800}.ok{background:#164c34;padding:10px;border-radius:9px}.err{background:#5a2229;padding:10px;border-radius:9px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.link{color:#9bc7ff}.muted{color:#93a4bd}@media(max-width:650px){.grid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><div class="top"><div><h1>Nastavení UPS</h1><a class="link" href="/">← Dashboard</a></div><form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{csrf}}"><button>Odhlásit</button></form></div>{% with msgs=get_flashed_messages(with_categories=true) %}{% for cat,msg in msgs %}<p class="{{cat}}">{{msg}}</p>{% endfor %}{% endwith %}
+ADMIN = r'''<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UPS – nastavení</title><style>body{font-family:system-ui;background:#07101f;color:#fff;margin:0}.wrap{max-width:850px;margin:auto;padding:25px 16px}.card{background:#121f35;padding:20px;border-radius:18px;margin-bottom:14px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}label{display:block;color:#a8b6ca}input,select,button{width:100%;padding:11px;margin-top:5px;border-radius:9px;border:1px solid #ffffff22;background:#0d1829;color:#fff}button{background:#285ca8;font-weight:800}.ok{background:#164c34;padding:10px;border-radius:9px}.err{background:#5a2229;padding:10px;border-radius:9px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.link{color:#9bc7ff}.muted{color:#93a4bd}.fw{background:#0d1829;padding:14px;border-radius:12px}.fw h3{margin:0 0 8px}.current{font-size:14px;color:#93a4bd;margin:0 0 8px}.confirm{display:flex;align-items:flex-start;gap:8px;margin-top:10px;font-size:14px}.confirm input{width:auto;margin:2px 0 0}.warn{background:#4a3516;padding:11px;border-radius:10px;color:#ffd98a}@media(max-width:650px){.grid{grid-template-columns:1fr}}</style></head><body><main class="wrap"><div class="top"><div><h1>Nastavení UPS</h1><a class="link" href="/">← Dashboard</a></div><form method="post" action="/admin/logout"><input type="hidden" name="csrf" value="{{csrf}}"><button>Odhlásit</button></form></div>{% with msgs=get_flashed_messages(with_categories=true) %}{% for cat,msg in msgs %}<p class="{{cat}}">{{msg}}</p>{% endfor %}{% endwith %}
 <form class="card" method="post"><input type="hidden" name="csrf" value="{{csrf}}"><h2>Automatické vypnutí serveru</h2><div class="grid"><label>Zpoždění reakce na výpadek – ONBATTERYDELAY (s)<input type="number" min="0" max="3600" name="ONBATTERYDELAY" value="{{cfg.get('ONBATTERYDELAY','6')}}" required></label><label>Baterie – vypnout při %<input type="number" min="0" max="100" name="BATTERYLEVEL" value="{{cfg.get('BATTERYLEVEL','10')}}" required></label><label>Zbývající výdrž – minuty<input type="number" min="0" max="120" name="MINUTES" value="{{cfg.get('MINUTES','5')}}" required></label><label>Max. čas na baterii – sekundy<input type="number" min="0" max="86400" name="TIMEOUT" value="{{cfg.get('TIMEOUT','0')}}" required></label><label>Zpoždění vypnutí výstupu UPS – KILLDELAY (s)<input type="number" min="0" max="86400" name="KILLDELAY" value="{{cfg.get('KILLDELAY','0')}}" required></label></div><p class="muted">BATTERYLEVEL, MINUTES a TIMEOUT fungují společně; první splněná podmínka zahájí vypnutí. TIMEOUT 0 časový limit vypíná. ONBATTERYDELAY odfiltruje velmi krátké výpadky pro událost onbattery.</p><button>Uložit a restartovat apcupsd</button></form>
 <form class="card" method="post"><input type="hidden" name="csrf" value="{{csrf}}"><h2>Upozornění apcupsd</h2><div class="grid"><label>ANNOY – opakování upozornění (s)<input type="number" min="0" max="86400" name="ANNOY" value="{{cfg.get('ANNOY','300')}}" required></label><label>ANNOYDELAY – první upozornění (s)<input type="number" min="0" max="86400" name="ANNOYDELAY" value="{{cfg.get('ANNOYDELAY','60')}}" required></label><label>NOLOGON<select name="NOLOGON">{% for v in ['disable','timeout','percent','minutes','always'] %}<option value="{{v}}" {% if cfg.get('NOLOGON','disable')==v %}selected{% endif %}>{{v}}</option>{% endfor %}</select></label></div><button>Uložit a restartovat apcupsd</button></form>
 <form class="card" method="post"><input type="hidden" name="csrf" value="{{csrf}}"><h2>Pokročilé nastavení démona</h2><div class="grid"><label>Název UPS – UPSNAME<input name="UPSNAME" minlength="1" maxlength="8" pattern="[A-Za-z0-9_.-]{1,8}" value="{{cfg.get('UPSNAME','RS1000')}}" required></label><label>Interval dotazování UPS – POLLTIME (s)<input type="number" min="1" max="3600" name="POLLTIME" value="{{cfg.get('POLLTIME','60')}}" required></label><label>Velikost logu událostí – EVENTSFILEMAX (KB)<input type="number" min="1" max="10240" name="EVENTSFILEMAX" value="{{cfg.get('EVENTSFILEMAX','10')}}" required></label><label>Zápis STATUS souboru – STATTIME (s)<input type="number" min="0" max="86400" name="STATTIME" value="{{cfg.get('STATTIME','0')}}" required></label><label>Zápis DATA záznamů – DATATIME (s)<input type="number" min="0" max="86400" name="DATATIME" value="{{cfg.get('DATATIME','0')}}" required></label><label>Podrobné statistiky do syslogu – LOGSTATS<select name="LOGSTATS"><option value="off" {% if cfg.get('LOGSTATS','off')=='off' %}selected{% endif %}>Vypnuto</option><option value="on" {% if cfg.get('LOGSTATS','off')=='on' %}selected{% endif %}>Zapnuto</option></select></label></div><p class="muted">Nižší POLLTIME zrychlí reakci, ale zvyšuje počet dotazů na UPS. STATTIME 0 a DATATIME 0 příslušné pravidelné zápisy vypínají. LOGSTATS může vytvářet hodně záznamů.</p><button>Uložit a restartovat apcupsd</button></form>
 <div class="card"><h2>Síťové propojení dashboardu</h2><p>NETSERVER, NISIP a NISPORT jsou kvůli Docker propojení záměrně uzamčené na <code>on / 127.0.0.1 / 3551</code>. Jejich změna by odpojila dashboard od apcupsd.</p></div>
-<div class="card"><h2>Nastavení přímo v UPS</h2><p>Citlivost, dolní/horní přepínací napětí, zvukový alarm a datum baterie se zobrazují na hlavním dashboardu. U tohoto modelu se mění přes interaktivní nástroj <code>apctest</code>; dashboard je z bezpečnostních důvodů automaticky nepřepisuje, protože dostupné volby závisejí na firmware UPS.</p><p class="muted">Tím se zabrání nechtěnému vypnutí výstupu UPS nebo nastavení nepodporované hodnoty.</p></div></main></body></html>'''
+<div class="card"><h2>Nastavení přímo v UPS</h2><p class="warn">Tyto hodnoty se zapisují přímo do UPS přes <code>apctest</code>. Při změně musí být UPS ONLINE. <code>apcupsd</code> se na několik sekund zastaví a po dokončení automaticky znovu spustí. Nepodporovanou hodnotu UPS odmítne.</p><div class="grid">
+<form class="fw" method="post"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="firmware_action" value="sensitivity"><h3>Citlivost</h3><p class="current">Aktuálně: <b>{{ups.get('sense') or '—'}}</b></p><label>Nová citlivost<select name="firmware_value" required><option value="low" {% if (ups.get('sense') or '')|lower == 'low' %}selected{% endif %}>Low</option><option value="medium" {% if (ups.get('sense') or '')|lower == 'medium' %}selected{% endif %}>Medium</option><option value="high" {% if (ups.get('sense') or '')|lower == 'high' %}selected{% endif %}>High</option></select></label><label class="confirm"><input type="checkbox" name="confirm_firmware" value="yes" required>Potvrzuji zápis přímo do UPS.</label><button>Změnit citlivost</button></form>
+<form class="fw" method="post"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="firmware_action" value="low_transfer"><h3>Dolní přepínací napětí</h3><p class="current">Aktuálně: <b>{{ups.get('lowtrans') if ups.get('lowtrans') is not none else '—'}} V</b></p><label>Nová hodnota (V)<input type="number" min="80" max="300" name="firmware_value" value="{{ups.get('lowtrans')|int if ups.get('lowtrans') is not none else ''}}" required></label><label class="confirm"><input type="checkbox" name="confirm_firmware" value="yes" required>Potvrzuji zápis přímo do UPS.</label><button>Změnit dolní mez</button></form>
+<form class="fw" method="post"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="firmware_action" value="high_transfer"><h3>Horní přepínací napětí</h3><p class="current">Aktuálně: <b>{{ups.get('hitrans') if ups.get('hitrans') is not none else '—'}} V</b></p><label>Nová hodnota (V)<input type="number" min="80" max="300" name="firmware_value" value="{{ups.get('hitrans')|int if ups.get('hitrans') is not none else ''}}" required></label><label class="confirm"><input type="checkbox" name="confirm_firmware" value="yes" required>Potvrzuji zápis přímo do UPS.</label><button>Změnit horní mez</button></form>
+<form class="fw" method="post"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="firmware_action" value="alarm"><h3>Zvukový alarm</h3><p class="current">UPS hlásí: <b>{{ups.get('alarmdel') or '—'}}</b></p><label>Chování alarmu<select name="firmware_value" required><option value="" selected disabled>Vyber…</option><option value="enabled">Zapnout</option><option value="disabled">Vypnout</option></select></label><label class="confirm"><input type="checkbox" name="confirm_firmware" value="yes" required>Potvrzuji zápis přímo do UPS.</label><button>Změnit alarm</button></form>
+<form class="fw" method="post"><input type="hidden" name="csrf" value="{{csrf}}"><input type="hidden" name="firmware_action" value="battery_date"><h3>Datum baterie</h3><p class="current">Aktuálně: <b>{{ups.get('battery_date') or '—'}}</b></p><label>Datum instalace/výměny baterie<input type="date" name="firmware_value" value="{{battery_date_input}}" min="1980-01-01" max="{{today}}" required></label><label class="confirm"><input type="checkbox" name="confirm_firmware" value="yes" required>Potvrzuji zápis přímo do UPS.</label><button>Změnit datum baterie</button></form>
+</div><p class="muted">Povolené hodnoty dolní a horní meze určuje firmware konkrétní UPS. Když BR1000I požadovanou hodnotu nepodporuje, změna se neoznačí jako úspěšná.</p></div></main></body></html>'''
 
 
 @app.get("/")
@@ -373,6 +379,19 @@ def admin():
     if request.method == "POST":
         try:
             require_csrf()
+            firmware_action = request.form.get("firmware_action", "").strip()
+            if firmware_action:
+                if request.form.get("confirm_firmware") != "yes":
+                    raise ValueError("Změnu přímo v UPS je nutné potvrdit.")
+                firmware_value = request.form.get("firmware_value", "").strip()
+                result = bridge_request(
+                    "firmware_apply",
+                    setting=firmware_action,
+                    value=firmware_value,
+                )
+                flash("Nastavení přímo v UPS bylo změněno a ověřeno.", "ok")
+                return redirect(url_for("admin"))
+
             values = {
                 "ONBATTERYDELAY": request.form.get("ONBATTERYDELAY", ""),
                 "BATTERYLEVEL": request.form.get("BATTERYLEVEL", ""),
@@ -394,7 +413,29 @@ def admin():
         except Exception as e:
             flash(str(e), "err")
         return redirect(url_for("admin"))
-    return render_template_string(ADMIN, cfg=read_config_values(), csrf=csrf_token())
+    try:
+        ups = status_data()
+    except Exception:
+        ups = {}
+    battery_date_input = ""
+    raw_date = str(ups.get("battery_date") or "")
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_date):
+        battery_date_input = raw_date
+    else:
+        for fmt in ("%m/%d/%Y", "%m/%d/%y"):
+            try:
+                battery_date_input = dt.datetime.strptime(raw_date, fmt).date().isoformat()
+                break
+            except ValueError:
+                pass
+    return render_template_string(
+        ADMIN,
+        cfg=read_config_values(),
+        ups=ups,
+        battery_date_input=battery_date_input,
+        today=dt.date.today().isoformat(),
+        csrf=csrf_token(),
+    )
 
 
 @app.post("/admin/logout")
