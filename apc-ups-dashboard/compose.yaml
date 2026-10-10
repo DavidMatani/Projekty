@@ -1,0 +1,32 @@
+services:
+  apc-ups-dashboard:
+    build:
+      context: .
+    image: apc-ups-dashboard:2.1
+    container_name: apc-ups-dashboard
+    network_mode: host
+    restart: unless-stopped
+    env_file:
+      - /etc/apc-ups-dashboard.env
+    environment:
+      UPS_DASHBOARD_DATA: /data
+      UPS_POLL_SECONDS: "30"
+      UPS_RETENTION_DAYS: "30"
+      UPS_APC_HOST: 127.0.0.1:3551
+      UPS_SETTINGS_SOCKET: /run/apc-ups-dashboard/settings.sock
+    volumes:
+      - /var/lib/apc-ups-dashboard:/data
+      - /run/apc-ups-dashboard:/run/apc-ups-dashboard
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8011/healthz', timeout=4).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
