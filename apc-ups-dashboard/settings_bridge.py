@@ -145,6 +145,8 @@ def main() -> None:
         raise SystemExit("Chybí UPS_BRIDGE_TOKEN.")
 
     SOCKET_PATH.parent.mkdir(parents=True, exist_ok=True)
+    os.chown(SOCKET_PATH.parent, 0, SOCKET_GID)
+    os.chmod(SOCKET_PATH.parent, 0o770)
     try:
         SOCKET_PATH.unlink()
     except FileNotFoundError:
