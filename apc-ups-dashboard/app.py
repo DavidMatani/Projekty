@@ -21,8 +21,6 @@ from werkzeug.security import check_password_hash
 APP_VERSION = "2.1-docker"
 APC = shutil.which("apcaccess") or "/usr/sbin/apcaccess"
 APC_HOST = os.environ.get("UPS_APC_HOST", "127.0.0.1:3551").strip()
-EVENTS_FILE = Path(os.environ.get("UPS_EVENTS_FILE", "/host/apcupsd.events"))
-CONFIG_PATH = Path(os.environ.get("UPS_APC_CONFIG", "/host/apcupsd.conf"))
 SETTINGS_SOCKET = os.environ.get("UPS_SETTINGS_SOCKET", "/run/apc-ups-dashboard/settings.sock")
 BRIDGE_TOKEN = os.environ.get("UPS_BRIDGE_TOKEN", "").strip()
 DATA_ROOT = Path(os.environ.get("UPS_DASHBOARD_DATA", "/data"))
@@ -68,9 +66,9 @@ def read_apc() -> dict[str, str]:
 
 def read_events(limit=120) -> list[str]:
     try:
-        lines = EVENTS_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
-        return [line.strip() for line in lines if line.strip()][-limit:][::-1]
-    except OSError:
+        response = bridge_request("events", limit=max(1, min(int(limit), 500)))
+        return response.get("events", [])
+    except Exception:
         return []
 
 
@@ -227,43 +225,43 @@ def require_csrf():
 
 
 def read_config_values() -> dict[str, str]:
-    keys = {"BATTERYLEVEL", "MINUTES", "TIMEOUT", "ANNOY", "ANNOYDELAY", "NOLOGON"}
-    out: dict[str, str] = {}
     try:
-        for line in CONFIG_PATH.read_text(encoding="utf-8", errors="replace").splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            parts = stripped.split(None, 1)
-            if len(parts) == 2 and parts[0] in keys:
-                out[parts[0]] = parts[1].strip()
-    except OSError:
-        pass
-    return out
+        response = bridge_request("get_config")
+        values = response.get("config", {})
+        return values if isinstance(values, dict) else {}
+    except Exception:
+        return {}
 
 
-def bridge_apply(changes: dict[str, str]) -> None:
+def bridge_request(action: str, **payload_fields) -> dict:
     if not BRIDGE_TOKEN:
         raise RuntimeError("Chybí UPS_BRIDGE_TOKEN.")
-    payload = (json.dumps({"token": BRIDGE_TOKEN, "changes": changes}, separators=(",", ":")) + "\n").encode("utf-8")
+    request_data = {"token": BRIDGE_TOKEN, "action": action, **payload_fields}
+    payload = (json.dumps(request_data, separators=(",", ":")) + "\n").encode("utf-8")
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
         sock.settimeout(20)
         sock.connect(SETTINGS_SOCKET)
         sock.sendall(payload)
         chunks = []
-        while True:
+        total = 0
+        while total <= 262144:
             part = sock.recv(4096)
             if not part:
                 break
             chunks.append(part)
-            if b"\n" in part or sum(map(len, chunks)) > 65536:
+            total += len(part)
+            if b"\n" in part:
                 break
     if not chunks:
-        raise RuntimeError("Pomocná služba pro nastavení UPS neodpověděla.")
+        raise RuntimeError("Pomocná služba UPS neodpověděla.")
     response = json.loads(b"".join(chunks).split(b"\n", 1)[0].decode("utf-8"))
     if not response.get("ok"):
-        raise RuntimeError(response.get("error") or "Nastavení UPS se nepodařilo.")
+        raise RuntimeError(response.get("error") or "Požadavek na UPS se nepodařil.")
+    return response
 
+
+def bridge_apply(changes: dict[str, str]) -> None:
+    bridge_request("apply", changes=changes)
 
 
 PAGE = r'''<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>APC UPS</title>
