@@ -71,7 +71,15 @@ Hodnoty se na hostiteli validují. Před změnou vznikne záloha konfigurace a p
 
 Síťové parametry `NETSERVER`, `NISIP` a `NISPORT` zůstávají záměrně uzamčené, protože Docker dashboard používá lokální NIS spojení `127.0.0.1:3551`.
 
-Nastavení uložená přímo ve firmware UPS, například citlivost, přepínací napětí, alarm nebo datum baterie, se zobrazují, ale automaticky se přes web nemění. U tohoto typu APC se nastavují interaktivním `apctest` a podporované volby závisí na konkrétním firmware.
+Nastavení uložená přímo ve firmware UPS lze v administraci měnit také:
+
+- citlivost **Low / Medium / High**,
+- dolní přepínací napětí,
+- horní přepínací napětí,
+- zvukový alarm **zapnout / vypnout**,
+- datum instalace nebo výměny baterie.
+
+Tyto změny provádí hostitelský bridge přes `apctest`. Před zápisem musí být UPS **ONLINE**. Bridge na několik sekund zastaví `apcupsd`, provede právě jednu požadovanou změnu, ověří odpověď UPS a `apcupsd` znovu spustí. U přepínacích napětí se nepodporovaná hodnota nepovažuje za úspěch, protože povolené hodnoty určuje firmware konkrétního modelu. Každá změna v této sekci vyžaduje samostatné potvrzení v administraci.
 
 ## Docker
 
@@ -108,7 +116,7 @@ Instalátor automaticky:
 
 - zastaví a odstraní starou nekontejnerovou službu `apc-ups-dashboard.service`,
 - nastaví lokální NIS rozhraní `apcupsd`,
-- sestaví image `apc-ups-dashboard:2.2`,
+- sestaví image `apc-ups-dashboard:2.3`,
 - nainstaluje a spustí `apc-ups-settings-bridge.service`,
 - spustí kontejner s `restart: unless-stopped`,
 - zachová historii v `/var/lib/apc-ups-dashboard`,
