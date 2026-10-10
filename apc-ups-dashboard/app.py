@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import contextlib
 import datetime as dt
+import json
 import os
 import re
 import secrets
 import shutil
+import socket
 import sqlite3
 import subprocess
 import threading
@@ -16,9 +18,14 @@ from pathlib import Path
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, session, url_for
 from werkzeug.security import check_password_hash
 
-APP_VERSION = "2.0"
+APP_VERSION = "2.1-docker"
 APC = shutil.which("apcaccess") or "/usr/sbin/apcaccess"
-DATA_ROOT = Path(os.environ.get("UPS_DASHBOARD_DATA", "/var/lib/apc-ups-dashboard"))
+APC_HOST = os.environ.get("UPS_APC_HOST", "127.0.0.1:3551").strip()
+EVENTS_FILE = Path(os.environ.get("UPS_EVENTS_FILE", "/host/apcupsd.events"))
+CONFIG_PATH = Path(os.environ.get("UPS_APC_CONFIG", "/host/apcupsd.conf"))
+SETTINGS_SOCKET = os.environ.get("UPS_SETTINGS_SOCKET", "/run/apc-ups-dashboard/settings.sock")
+BRIDGE_TOKEN = os.environ.get("UPS_BRIDGE_TOKEN", "").strip()
+DATA_ROOT = Path(os.environ.get("UPS_DASHBOARD_DATA", "/data"))
 DB_PATH = DATA_ROOT / "history.sqlite3"
 POLL_SECONDS = max(10, int(os.environ.get("UPS_POLL_SECONDS", "30")))
 RETENTION_DAYS = max(1, int(os.environ.get("UPS_RETENTION_DAYS", "30")))
@@ -26,7 +33,6 @@ ADMIN_USER = os.environ.get("UPS_ADMIN_USER", "admin").strip() or "admin"
 ADMIN_PASSWORD_HASH = os.environ.get("UPS_ADMIN_PASSWORD_HASH", "").strip()
 ADMIN_SESSION_MINUTES = max(5, int(os.environ.get("UPS_ADMIN_SESSION_MINUTES", "30")))
 SECRET_KEY = os.environ.get("UPS_DASHBOARD_SECRET_KEY", "").strip() or secrets.token_hex(32)
-HELPER = os.environ.get("UPS_SETTINGS_HELPER", "/usr/local/sbin/apc-ups-dashboard-apply")
 
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
@@ -48,7 +54,10 @@ def num(value):
 
 
 def read_apc() -> dict[str, str]:
-    p = subprocess.run([APC, "status"], capture_output=True, text=True, check=True, timeout=8)
+    cmd = [APC, "status"]
+    if APC_HOST:
+        cmd.append(APC_HOST)
+    p = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=8)
     raw: dict[str, str] = {}
     for line in p.stdout.splitlines():
         if ":" in line:
@@ -59,20 +68,10 @@ def read_apc() -> dict[str, str]:
 
 def read_events(limit=120) -> list[str]:
     try:
-        p = subprocess.run([APC, "events"], capture_output=True, text=True, check=True, timeout=8)
-        lines = [line.strip() for line in p.stdout.splitlines() if line.strip()]
-        if lines:
-            return lines[-limit:][::-1]
-    except Exception:
-        pass
-
-    for path in ("/var/log/apcupsd.events", "/var/log/apcupsd.events.0"):
-        try:
-            lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
-            return [line.strip() for line in lines if line.strip()][-limit:][::-1]
-        except OSError:
-            pass
-    return []
+        lines = EVENTS_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
+        return [line.strip() for line in lines if line.strip()][-limit:][::-1]
+    except OSError:
+        return []
 
 
 def status_data() -> dict:
@@ -231,7 +230,7 @@ def read_config_values() -> dict[str, str]:
     keys = {"BATTERYLEVEL", "MINUTES", "TIMEOUT", "ANNOY", "ANNOYDELAY", "NOLOGON"}
     out: dict[str, str] = {}
     try:
-        for line in Path("/etc/apcupsd/apcupsd.conf").read_text(encoding="utf-8", errors="replace").splitlines():
+        for line in CONFIG_PATH.read_text(encoding="utf-8", errors="replace").splitlines():
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
@@ -241,6 +240,30 @@ def read_config_values() -> dict[str, str]:
     except OSError:
         pass
     return out
+
+
+def bridge_apply(changes: dict[str, str]) -> None:
+    if not BRIDGE_TOKEN:
+        raise RuntimeError("Chybí UPS_BRIDGE_TOKEN.")
+    payload = (json.dumps({"token": BRIDGE_TOKEN, "changes": changes}, separators=(",", ":")) + "\n").encode("utf-8")
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        sock.settimeout(20)
+        sock.connect(SETTINGS_SOCKET)
+        sock.sendall(payload)
+        chunks = []
+        while True:
+            part = sock.recv(4096)
+            if not part:
+                break
+            chunks.append(part)
+            if b"\n" in part or sum(map(len, chunks)) > 65536:
+                break
+    if not chunks:
+        raise RuntimeError("Pomocná služba pro nastavení UPS neodpověděla.")
+    response = json.loads(b"".join(chunks).split(b"\n", 1)[0].decode("utf-8"))
+    if not response.get("ok"):
+        raise RuntimeError(response.get("error") or "Nastavení UPS se nepodařilo.")
+
 
 
 PAGE = r'''<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>APC UPS</title>
@@ -358,13 +381,7 @@ def admin():
                 "ANNOYDELAY": request.form.get("ANNOYDELAY", ""),
                 "NOLOGON": request.form.get("NOLOGON", ""),
             }
-            cmd = ["sudo", HELPER]
-            for key, value in values.items():
-                if value != "":
-                    cmd.extend([f"--{key.lower()}", value])
-            p = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-            if p.returncode != 0:
-                raise RuntimeError((p.stderr or p.stdout or "Nastavení se nepodařilo.").strip())
+            bridge_apply({key: value for key, value in values.items() if value != ""})
             flash("Nastavení bylo uloženo a apcupsd restartován.", "ok")
         except Exception as e:
             flash(str(e), "err")
