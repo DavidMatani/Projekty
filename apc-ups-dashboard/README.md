@@ -1,14 +1,22 @@
 # APC UPS Dashboard
 
-Grafický dashboard pro APC Back-UPS připojenou k Raspberry Pi přes `apcupsd`.
+Grafický webový dashboard pro APC Back-UPS připojenou k Raspberry Pi přes `apcupsd`.
 
-Zobrazuje aktuální stav **ONLINE / NA BATERII**, nabití baterie, odhad výdrže, zatížení v % a W, vstupní napětí, napětí baterie, datum baterie, důvod posledního přechodu a bezpečnostní limity. Každých 30 sekund ukládá vzorek do SQLite a zobrazuje graf baterie a zatížení za posledních 24 hodin.
+Zobrazuje živě:
 
-Dashboard pouze čte data. Bezpečné vypnutí Raspberry při výpadku dál zajišťuje `apcupsd`.
+- stav **ONLINE / NA BATERII**,
+- nabití baterie a odhad zbývajícího času,
+- zatížení UPS v % a přibližně ve wattech,
+- síťové a bateriové napětí,
+- datum baterie,
+- důvod posledního přechodu na baterii,
+- limity bezpečného vypnutí z `apcupsd`.
+
+Data se obnovují každých 5 sekund. Dashboard UPS pouze čte; automatické bezpečné vypnutí Raspberry dál zajišťuje `apcupsd`.
 
 ## Instalace na Raspberry Pi
 
-Nejdřív ověř:
+Nejdřív ověř komunikaci:
 
 ```bash
 apcaccess status
@@ -20,13 +28,13 @@ Potom v této složce spusť:
 sudo bash install.sh
 ```
 
-Aplikace poběží lokálně na:
+Aplikace poběží na:
 
 ```text
-127.0.0.1:8011
+http://127.0.0.1:8011
 ```
 
-Nginx konfigurace je připravena pro:
+Instalátor zároveň vytvoří systemd službu `apc-ups-dashboard` a Nginx konfiguraci pro:
 
 ```text
 ups.salonkmbeauty.eu
@@ -45,26 +53,8 @@ Log:
 journalctl -u apc-ups-dashboard -f
 ```
 
-## Data
-
-Historie se ukládá do:
-
-```text
-/var/lib/apc-ups-dashboard/ups_history.sqlite3
-```
-
-Výchozí uchování historie je 30 dní. Web zobrazuje posledních 24 hodin.
-
-## Aktualizace
-
-Po stažení novějšího `app.py`:
-
-```bash
-sudo cp app.py /opt/apc-ups-dashboard/app.py
-sudo chown ubuntu:ubuntu /opt/apc-ups-dashboard/app.py
-sudo systemctl restart apc-ups-dashboard
-```
-
 ## Cloudflare
 
-Až bude služba fungovat lokálně, je možné v existujícím Cloudflare Tunnelu přidat hostname `ups.salonkmbeauty.eu` směřující na `http://localhost:80`. Pro veřejné vystavení je vhodné přidat autentizaci přes Cloudflare Access.
+Až bude dashboard fungovat lokálně, přidej v existujícím Cloudflare Tunnelu hostname `ups.salonkmbeauty.eu` směrovaný na `http://localhost:80`.
+
+Pokud bude dashboard dostupný z internetu, doporučuje se před něj přidat Cloudflare Access.
