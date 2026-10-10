@@ -9,34 +9,62 @@ fi
 APP=/opt/apc-ups-dashboard
 DATA=/var/lib/apc-ups-dashboard
 ENV_FILE=/etc/apc-ups-dashboard.env
-HELPER=/usr/local/sbin/apc-ups-dashboard-apply
-SUDOERS=/etc/sudoers.d/apc-ups-dashboard
+BRIDGE=/usr/local/lib/apc-ups-dashboard/settings_bridge.py
+BRIDGE_SERVICE=/etc/systemd/system/apc-ups-settings-bridge.service
+APC_CONF=/etc/apcupsd/apcupsd.conf
 SRC="$(cd "$(dirname "$0")" && pwd)"
 RESET_PASSWORD=0
 [[ "${1:-}" == "--reset-password" ]] && RESET_PASSWORD=1
 
-command -v apcaccess >/dev/null || { echo "Chybí apcupsd/apcaccess"; exit 1; }
+for cmd in docker apcaccess systemctl nginx python3; do
+  command -v "$cmd" >/dev/null || { echo "Chybí příkaz: $cmd"; exit 1; }
+done
+docker compose version >/dev/null 2>&1 || { echo "Chybí Docker Compose plugin (docker compose)."; exit 1; }
 
-apt-get update
-apt-get install -y python3-venv nginx sudo
+echo "==> Zastavuji starou nekontejnerovou verzi dashboardu, pokud existuje"
+systemctl disable --now apc-ups-dashboard.service >/dev/null 2>&1 || true
+rm -f /etc/systemd/system/apc-ups-dashboard.service
 
-if ! id -u upsdash >/dev/null 2>&1; then
-  useradd --system --home-dir "$DATA" --shell /usr/sbin/nologin upsdash
-fi
-
-mkdir -p "$APP" "$DATA"
+echo "==> Kopíruji Docker verzi dashboardu"
+mkdir -p "$APP" "$DATA" "$(dirname "$BRIDGE")"
 install -o root -g root -m 0644 "$SRC/app.py" "$APP/app.py"
-install -o root -g root -m 0755 "$SRC/settings_helper.py" "$HELPER"
-chown -R upsdash:upsdash "$DATA"
+install -o root -g root -m 0644 "$SRC/Dockerfile" "$APP/Dockerfile"
+install -o root -g root -m 0644 "$SRC/compose.yaml" "$APP/compose.yaml"
+install -o root -g root -m 0755 "$SRC/settings_bridge.py" "$BRIDGE"
+chown -R 10001:10001 "$DATA"
 
-if [[ ! -x "$APP/.venv/bin/python" ]]; then
-  python3 -m venv "$APP/.venv"
-fi
-"$APP/.venv/bin/pip" install --upgrade pip
-"$APP/.venv/bin/pip" install Flask==3.1.2 gunicorn==23.0.0
+echo "==> Nastavuji apcupsd pro lokální přístup Docker kontejneru"
+cp -a "$APC_CONF" "$APC_CONF.before-dashboard-docker.bak"
+python3 - "$APC_CONF" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+wanted = {"NETSERVER": "on", "NISIP": "127.0.0.1", "NISPORT": "3551"}
+lines = path.read_text(encoding="utf-8").splitlines()
+seen = set()
+for i, line in enumerate(lines):
+    stripped = line.strip()
+    if not stripped or stripped.startswith("#"):
+        continue
+    parts = stripped.split(None, 1)
+    if len(parts) == 2 and parts[0] in wanted:
+        key = parts[0]
+        lines[i] = f"{key} {wanted[key]}"
+        seen.add(key)
+for key, value in wanted.items():
+    if key not in seen:
+        lines.append(f"{key} {value}")
+path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+PY
+systemctl restart apcupsd.service
+systemctl is-active --quiet apcupsd.service
+
+echo "==> Sestavuji Docker image"
+docker compose -f "$APP/compose.yaml" build
 
 setup_password() {
-  local admin password confirm hash secret
+  local admin password confirm hash secret bridge_token
   read -r -p "Jméno správce UPS [admin]: " admin
   admin="${admin:-admin}"
 
@@ -53,8 +81,9 @@ setup_password() {
     echo "Hesla se neshodují."
   done
 
-  hash="$("$APP/.venv/bin/python" -c 'from werkzeug.security import generate_password_hash; import sys; print(generate_password_hash(sys.argv[1]))' "$password")"
-  secret="$("$APP/.venv/bin/python" -c 'import secrets; print(secrets.token_hex(32))')"
+  hash="$(docker run --rm --entrypoint python apc-ups-dashboard:2.1 -c 'from werkzeug.security import generate_password_hash; import sys; print(generate_password_hash(sys.argv[1]))' "$password")"
+  secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
+  bridge_token="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 
   umask 077
   cat >"$ENV_FILE" <<EOF
@@ -62,52 +91,67 @@ UPS_ADMIN_USER=$admin
 UPS_ADMIN_PASSWORD_HASH='$hash'
 UPS_DASHBOARD_SECRET_KEY=$secret
 UPS_ADMIN_SESSION_MINUTES=30
+UPS_BRIDGE_TOKEN=$bridge_token
 EOF
   chmod 600 "$ENV_FILE"
   chown root:root "$ENV_FILE"
 }
 
-if [[ ! -f "$ENV_FILE" || "$RESET_PASSWORD" -eq 1 ]]; then
+if [[ ! -f "$ENV_FILE" || "$RESET_PASSWORD" -eq 1 ]] || ! grep -q '^UPS_ADMIN_PASSWORD_HASH=' "$ENV_FILE"; then
   setup_password
 else
-  echo "Administrátorské heslo zůstává zachované."
-  echo "Pro změnu: sudo bash install.sh --reset-password"
+  echo "==> Administrátorské heslo zůstává zachované"
+  if ! grep -q '^UPS_DASHBOARD_SECRET_KEY=' "$ENV_FILE"; then
+    echo "UPS_DASHBOARD_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >>"$ENV_FILE"
+  fi
+  if ! grep -q '^UPS_ADMIN_SESSION_MINUTES=' "$ENV_FILE"; then
+    echo "UPS_ADMIN_SESSION_MINUTES=30" >>"$ENV_FILE"
+  fi
+  if ! grep -q '^UPS_BRIDGE_TOKEN=' "$ENV_FILE"; then
+    echo "UPS_BRIDGE_TOKEN=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >>"$ENV_FILE"
+  fi
+  chmod 600 "$ENV_FILE"
+  chown root:root "$ENV_FILE"
 fi
 
-cat >"$SUDOERS" <<'EOF'
-upsdash ALL=(root) NOPASSWD: /usr/local/sbin/apc-ups-dashboard-apply *
-EOF
-chmod 440 "$SUDOERS"
-visudo -cf "$SUDOERS"
-
-cat >/etc/systemd/system/apc-ups-dashboard.service <<'EOF'
+echo "==> Instaluji omezenou hostitelskou službu pro změny nastavení"
+cat >"$BRIDGE_SERVICE" <<EOF
 [Unit]
-Description=APC UPS Dashboard
-After=network-online.target apcupsd.service
-Wants=network-online.target
+Description=APC UPS Dashboard Settings Bridge
+After=apcupsd.service
 Requires=apcupsd.service
+Before=docker.service
 
 [Service]
 Type=simple
-User=upsdash
-Group=upsdash
-WorkingDirectory=/opt/apc-ups-dashboard
-EnvironmentFile=/etc/apc-ups-dashboard.env
-Environment=UPS_DASHBOARD_DATA=/var/lib/apc-ups-dashboard
-Environment=UPS_POLL_SECONDS=30
-Environment=UPS_RETENTION_DAYS=30
-ExecStart=/opt/apc-ups-dashboard/.venv/bin/gunicorn --bind 127.0.0.1:8011 --workers 1 --threads 4 --timeout 30 app:app
+User=root
+Group=root
+EnvironmentFile=$ENV_FILE
+Environment=UPS_BRIDGE_GID=10001
+Environment=UPS_APC_CONFIG_HOST=$APC_CONF
+Environment=UPS_EVENTS_FILE_HOST=/var/log/apcupsd.events
+Environment=UPS_SETTINGS_SOCKET=/run/apc-ups-dashboard/settings.sock
+ExecStart=$BRIDGE
 Restart=on-failure
-RestartSec=3
-PrivateTmp=true
+RestartSec=2
+NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
-ReadWritePaths=/var/lib/apc-ups-dashboard /etc/apcupsd
+ReadWritePaths=/etc/apcupsd /run/apc-ups-dashboard
+PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
+touch /var/log/apcupsd.events
+systemctl daemon-reload
+systemctl enable --now apc-ups-settings-bridge.service
+
+echo "==> Spouštím dashboard v Dockeru"
+docker compose -f "$APP/compose.yaml" up -d --remove-orphans
+
+echo "==> Nastavuji Nginx"
 cat >/etc/nginx/sites-available/apc-ups-dashboard <<'EOF'
 server {
     listen 80;
@@ -129,15 +173,19 @@ server {
     }
 }
 EOF
-
 ln -sfn /etc/nginx/sites-available/apc-ups-dashboard /etc/nginx/sites-enabled/apc-ups-dashboard
-
-systemctl daemon-reload
-systemctl enable apc-ups-dashboard
-systemctl restart apc-ups-dashboard
 nginx -t
 systemctl reload nginx
 
-printf '\nDashboard nainstalován.\n'
-printf 'Test: curl http://127.0.0.1:8011/healthz\n'
-printf 'Nastavení: https://ups.salonkmbeauty.eu/admin\n'
+echo
+echo "Hotovo."
+echo "Kontejner:"
+docker ps --filter name=apc-ups-dashboard
+echo
+echo "Test:"
+echo "  curl http://127.0.0.1:8011/healthz"
+echo "Nastavení:"
+echo "  https://ups.salonkmbeauty.eu/admin"
+echo
+echo "Změna hesla později:"
+echo "  sudo bash install.sh --reset-password"
