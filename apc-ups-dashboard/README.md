@@ -40,6 +40,8 @@ Dashboard ukládá do SQLite také historii:
 
 Výchozí interval ukládání je 30 sekund a historie se drží 30 dní.
 
+Historie je v dashboardu rozdělena do samostatných grafů pro baterii, zatížení, síťové napětí, odhadovanou výdrž, výkon ve wattech a napětí baterie. Každý graf má vlastní jednotku, minimum, průměr, maximum, poslední hodnotu a přesnou hodnotu po najetí/klepnutí.
+
 ## Nastavení pod heslem
 
 Veřejná část dashboardu je pouze pro čtení. Administrace:
@@ -116,7 +118,7 @@ Instalátor automaticky:
 
 - zastaví a odstraní starou nekontejnerovou službu `apc-ups-dashboard.service`,
 - nastaví lokální NIS rozhraní `apcupsd`,
-- sestaví image `apc-ups-dashboard:2.3`,
+- sestaví image `apc-ups-dashboard:2.4`,
 - nainstaluje a spustí `apc-ups-settings-bridge.service`,
 - spustí kontejner s `restart: unless-stopped`,
 - zachová historii v `/var/lib/apc-ups-dashboard`,
