@@ -2,6 +2,14 @@
 
 Webový dashboard pro APC Back-UPS připojenou k Raspberry Pi přes `apcupsd`.
 
+## Architektura
+
+Webová aplikace běží v Docker kontejneru `apc-ups-dashboard`.
+
+`apcupsd` zůstává přímo na Raspberry Pi, protože komunikuje s UPS přes USB a zajišťuje bezpečné vypnutí celého serveru. Kontejner se k němu připojuje pouze lokálně přes NIS na `127.0.0.1:3551`.
+
+Změny nastavení z webu předává kontejner malé omezené hostitelské službě `apc-ups-settings-bridge.service` přes Unix socket. Kontejner nemá Docker socket, není privilegovaný a nemá přímý zápis do `/etc/apcupsd`.
+
 ## Co zobrazuje
 
 Dashboard čte kompletní výstup `apcaccess status` a zobrazuje:
@@ -20,21 +28,21 @@ Dashboard čte kompletní výstup `apcaccess status` a zobrazuje:
 - firmware, sériové číslo, kabel, driver a režim,
 - všechny ostatní položky, které konkrétní UPS vrátí přes `apcaccess`.
 
-Dashboard navíc ukládá historii do SQLite:
+Dashboard ukládá do SQLite také historii:
 
-- síťové napětí,
-- stav baterie,
-- odhad výdrže,
+- síťového napětí,
+- stavu baterie,
+- odhadované výdrže,
 - zatížení,
-- přibližný výkon,
+- přibližného výkonu,
 - napětí baterie,
-- začátek a konec výpadků proudu.
+- začátků a konců výpadků proudu.
 
 Výchozí interval ukládání je 30 sekund a historie se drží 30 dní.
 
 ## Nastavení pod heslem
 
-Veřejná část dashboardu je pouze pro čtení. Stránka:
+Veřejná část dashboardu je pouze pro čtení. Administrace:
 
 ```text
 https://ups.salonkmbeauty.eu/admin
@@ -42,20 +50,41 @@ https://ups.salonkmbeauty.eu/admin
 
 je chráněná uživatelským jménem a heslem.
 
-Z administrace lze bezpečně měnit vybraná nastavení `apcupsd`:
+Bezpečně lze měnit tyto parametry `apcupsd`:
 
 - `BATTERYLEVEL`,
 - `MINUTES`,
 - `TIMEOUT`,
+- `KILLDELAY`,
 - `ANNOY`,
 - `ANNOYDELAY`,
 - `NOLOGON`.
 
-Po uložení se konfigurace validuje, zálohuje a služba `apcupsd` se restartuje.
+Hodnoty se na hostiteli validují. Před změnou vznikne záloha konfigurace a po změně se restartuje `apcupsd`. Pokud restart selže, bridge vrátí původní konfiguraci.
 
-Nastavení uložená přímo ve firmware UPS, například citlivost, přepínací napětí, alarm nebo datum baterie, se zobrazují, ale dashboard je automaticky nepřepisuje. Tyto položky se u tohoto typu APC mění přes interaktivní `apctest` a dostupné volby závisejí na konkrétním firmware.
+Nastavení uložená přímo ve firmware UPS, například citlivost, přepínací napětí, alarm nebo datum baterie, se zobrazují, ale automaticky se přes web nemění. U tohoto typu APC se nastavují interaktivním `apctest` a podporované volby závisí na konkrétním firmware.
 
-## Instalace / aktualizace
+## Docker
+
+Kontejner používá:
+
+```text
+restart: unless-stopped
+network_mode: host
+read_only: true
+cap_drop: ALL
+no-new-privileges
+```
+
+Historie je mimo kontejner:
+
+```text
+/var/lib/apc-ups-dashboard/history.sqlite3
+```
+
+Takže při aktualizaci nebo znovuvytvoření kontejneru zůstane zachovaná.
+
+## Instalace / převod ze staré verze
 
 Na Raspberry Pi:
 
@@ -66,41 +95,63 @@ cd apc-ups-dashboard
 sudo bash install.sh
 ```
 
-Při první instalaci nové verze se instalátor zeptá na jméno a heslo správce.
+Instalátor automaticky:
 
-Pro pozdější změnu hesla:
+- zastaví a odstraní starou nekontejnerovou službu `apc-ups-dashboard.service`,
+- nastaví lokální NIS rozhraní `apcupsd`,
+- sestaví image `apc-ups-dashboard:2.1`,
+- nainstaluje a spustí `apc-ups-settings-bridge.service`,
+- spustí kontejner s `restart: unless-stopped`,
+- zachová historii v `/var/lib/apc-ups-dashboard`,
+- nastaví Nginx pro `ups.salonkmbeauty.eu`.
+
+Při první instalaci se instalátor zeptá na jméno a heslo správce. Heslo se ukládá pouze jako hash v root-only souboru:
+
+```text
+/etc/apc-ups-dashboard.env
+```
+
+Pozdější změna hesla:
 
 ```bash
 sudo bash install.sh --reset-password
 ```
 
-Instalátor vytvoří:
-
-- aplikaci v `/opt/apc-ups-dashboard`,
-- historii v `/var/lib/apc-ups-dashboard/history.sqlite3`,
-- systemd službu `apc-ups-dashboard.service`,
-- chráněný pomocný příkaz pro změnu povolených nastavení,
-- Nginx konfiguraci pro `ups.salonkmbeauty.eu`,
-- soubor s hashem administrátorského hesla v `/etc/apc-ups-dashboard.env`.
-
-Heslo se neukládá v otevřeném textu.
-
 ## Kontrola
 
+Stav kontejneru:
+
 ```bash
-sudo systemctl status apc-ups-dashboard --no-pager
+sudo docker ps --filter name=apc-ups-dashboard
+```
+
+Healthcheck:
+
+```bash
 curl http://127.0.0.1:8011/healthz
 ```
 
-Log:
+Log webu:
 
 ```bash
-journalctl -u apc-ups-dashboard -f
+sudo docker logs -f apc-ups-dashboard
+```
+
+Stav bridge:
+
+```bash
+sudo systemctl status apc-ups-settings-bridge --no-pager
+```
+
+Log bridge:
+
+```bash
+sudo journalctl -u apc-ups-settings-bridge -f
 ```
 
 ## Cloudflare
 
-Existující Cloudflare Tunnel může směrovat hostname:
+Existující Cloudflare Tunnel může dál směrovat:
 
 ```text
 ups.salonkmbeauty.eu
@@ -112,4 +163,4 @@ na:
 http://localhost:80
 ```
 
-Pro další ochranu lze před veřejný dashboard přidat Cloudflare Access.
+Nginx pak požadavek předá kontejneru na `127.0.0.1:8011`.
