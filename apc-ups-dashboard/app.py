@@ -329,7 +329,7 @@ function showNearest(canvas,clientX){
   let targetTs=meta.points[0].ts+(x-meta.padL)/(meta.w-meta.padL-meta.padR)*(meta.points.at(-1).ts-meta.points[0].ts||1);
   let nearest=meta.points.reduce((best,p)=>Math.abs(p.ts-targetTs)<Math.abs(best.ts-targetTs)?p:best,meta.points[0]);
   $(meta.spec.detail).textContent=`${new Date(nearest.ts*1000).toLocaleString()} · ${fmtMetric(nearest.v,meta.spec)}`;
-  redrawHistory();
+  drawMetricChart(historyRows,meta.spec);
   let m=canvas._historyMeta,ctx=canvas.getContext('2d'),xPoint=m.px(nearest.ts),yPoint=m.py(nearest.v),dpr=devicePixelRatio||1;ctx.setTransform(dpr,0,0,dpr,0,0);ctx.strokeStyle='#ffffff66';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(xPoint,m.padT);ctx.lineTo(xPoint,m.h-m.padB);ctx.stroke();ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(xPoint,yPoint,4,0,Math.PI*2);ctx.fill();
 }
 async function loadHistory(){
@@ -387,6 +387,15 @@ def api_history():
             "SELECT ts,status,linev,battery,runtime,load,watts,battv FROM samples WHERE ts>=? ORDER BY ts",
             (cutoff,),
         ).fetchall()
+    # Keep long periods responsive on the Raspberry Pi and in mobile browsers.
+    # The first/last sample are retained; intermediate samples are thinned only
+    # for graph rendering, never deleted from the history database.
+    if len(rows) > 1800:
+        step = max(1, len(rows) // 1798)
+        selected = list(rows[::step])
+        if selected[-1]["ts"] != rows[-1]["ts"]:
+            selected.append(rows[-1])
+        rows = selected
     return jsonify(samples=[dict(row) for row in rows])
 
 
