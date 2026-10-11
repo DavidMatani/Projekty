@@ -81,7 +81,7 @@ setup_password() {
     echo "Hesla se neshodují."
   done
 
-  hash="$(docker run --rm --entrypoint python apc-ups-dashboard:2.4 -c 'from werkzeug.security import generate_password_hash; import sys; print(generate_password_hash(sys.argv[1]))' "$password")"
+  hash="$(docker run --rm --entrypoint python apc-ups-dashboard:2.5 -c 'from werkzeug.security import generate_password_hash; import sys; print(generate_password_hash(sys.argv[1]))' "$password")"
   secret="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
   bridge_token="$(python3 -c 'import secrets; print(secrets.token_hex(32))')"
 
