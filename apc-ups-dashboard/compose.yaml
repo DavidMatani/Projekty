@@ -2,7 +2,7 @@ services:
   apc-ups-dashboard:
     build:
       context: .
-    image: apc-ups-dashboard:2.4
+    image: apc-ups-dashboard:2.5
     container_name: apc-ups-dashboard
     network_mode: host
     restart: unless-stopped
