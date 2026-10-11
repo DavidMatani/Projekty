@@ -25,6 +25,7 @@ Dashboard čte kompletní výstup `apcaccess status` a zobrazuje:
 - výsledek self-testu,
 - nastavení alarmu,
 - datum baterie,
+- **kondici baterie** (DOBRÁ / SLÁBNE / VYMĚNIT / NEZNÁMÁ), její stáří a vysvětlení hodnocení,
 - firmware, sériové číslo, kabel, driver a režim,
 - všechny ostatní položky, které konkrétní UPS vrátí přes `apcaccess`.
 
@@ -39,6 +40,8 @@ Dashboard ukládá do SQLite také historii:
 - začátků a konců výpadků proudu.
 
 Výchozí interval ukládání je 30 sekund a historie se drží 30 dní.
+
+Kondice baterie je záměrně kvalitativní, ne fiktivní procento. APC Back-UPS neposkytuje skutečné SOH jako telefon; dashboard vyhodnocuje explicitní hlášení `REPLACEBATT`/`NOBATT`, výsledek self-testu a stáří baterie. Nabíjení `BCHARGE` se za kondici nepovažuje.
 
 Historie je v dashboardu rozdělena do samostatných grafů pro baterii, zatížení, síťové napětí, odhadovanou výdrž, výkon ve wattech a napětí baterie. Každý graf má vlastní jednotku, minimum, průměr, maximum, poslední hodnotu a přesnou hodnotu po najetí/klepnutí.
 
@@ -118,7 +121,7 @@ Instalátor automaticky:
 
 - zastaví a odstraní starou nekontejnerovou službu `apc-ups-dashboard.service`,
 - nastaví lokální NIS rozhraní `apcupsd`,
-- sestaví image `apc-ups-dashboard:2.4`,
+- sestaví image `apc-ups-dashboard:2.5`,
 - nainstaluje a spustí `apc-ups-settings-bridge.service`,
 - spustí kontejner s `restart: unless-stopped`,
 - zachová historii v `/var/lib/apc-ups-dashboard`,
