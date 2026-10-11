@@ -18,7 +18,7 @@ from pathlib import Path
 from flask import Flask, flash, jsonify, redirect, render_template_string, request, session, url_for
 from werkzeug.security import check_password_hash
 
-APP_VERSION = "2.4-docker"
+APP_VERSION = "2.5-docker"
 APC = shutil.which("apcaccess") or "/usr/sbin/apcaccess"
 APC_HOST = os.environ.get("UPS_APC_HOST", "127.0.0.1:3551").strip()
 SETTINGS_SOCKET = os.environ.get("UPS_SETTINGS_SOCKET", "/run/apc-ups-dashboard/settings.sock")
@@ -72,11 +72,92 @@ def read_events(limit=120) -> list[str]:
         return []
 
 
+def parse_battery_date(value: str | None):
+    text = (value or "").strip()
+    if not text:
+        return None
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m/%d/%y", "%d.%m.%Y", "%d.%m.%y"):
+        try:
+            return dt.datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    return None
+
+
+def battery_condition(raw: dict[str, str]) -> dict:
+    """Conservative battery-health assessment.
+
+    APC Back-UPS does not expose a true SOH percentage. We therefore report a
+    qualitative state from explicit UPS alarms/self-test plus battery age.
+    Charge percentage is intentionally not treated as battery health.
+    """
+    status = (raw.get("STATUS") or "").upper()
+    selftest = (raw.get("SELFTEST") or "").strip()
+    selftest_upper = selftest.upper()
+    installed = parse_battery_date(raw.get("BATTDATE"))
+    age_years = None
+    if installed:
+        age_years = max(0.0, (dt.date.today() - installed).days / 365.2425)
+
+    if "REPLACEBATT" in status or "NOBATT" in status:
+        return {
+            "label": "VYMĚNIT",
+            "code": "replace",
+            "reason": "UPS přímo hlásí problém s baterií nebo požadavek na její výměnu.",
+            "age_years": round(age_years, 1) if age_years is not None else None,
+        }
+
+    bad_selftest_tokens = ("FAIL", "FAILED", "BAD", "NG")
+    if any(token in selftest_upper for token in bad_selftest_tokens):
+        return {
+            "label": "VYMĚNIT",
+            "code": "replace",
+            "reason": f"Poslední self-test baterie není v pořádku ({selftest}).",
+            "age_years": round(age_years, 1) if age_years is not None else None,
+        }
+
+    # Age is only a warning heuristic, not a measured state-of-health value.
+    if age_years is not None and age_years >= 4.0:
+        return {
+            "label": "SLÁBNE",
+            "code": "weak",
+            "reason": f"Baterie je stará přibližně {age_years:.1f} roku. UPS zatím nehlásí nutnost výměny.",
+            "age_years": round(age_years, 1),
+        }
+
+    if selftest_upper in {"OK", "PASSED", "PASS"}:
+        reason = "Poslední self-test je v pořádku a UPS nehlásí požadavek na výměnu."
+        if age_years is not None:
+            reason += f" Stáří baterie je přibližně {age_years:.1f} roku."
+        return {
+            "label": "DOBRÁ",
+            "code": "good",
+            "reason": reason,
+            "age_years": round(age_years, 1) if age_years is not None else None,
+        }
+
+    if age_years is not None and age_years < 4.0:
+        return {
+            "label": "DOBRÁ",
+            "code": "good",
+            "reason": "UPS nehlásí problém s baterií. Kondice je orientační, protože není k dispozici jednoznačný výsledek self-testu.",
+            "age_years": round(age_years, 1),
+        }
+
+    return {
+        "label": "NEZNÁMÁ",
+        "code": "unknown",
+        "reason": "UPS nehlásí přesné SOH baterie a nemáme dost údajů pro spolehlivé hodnocení.",
+        "age_years": None,
+    }
+
+
 def status_data() -> dict:
     raw = read_apc()
     load = num(raw.get("LOADPCT"))
     power = num(raw.get("NOMPOWER"))
     status = raw.get("STATUS", "UNKNOWN")
+    health = battery_condition(raw)
     return {
         "model": raw.get("MODEL", "APC UPS"),
         "name": raw.get("UPSNAME", "UPS"),
@@ -98,6 +179,10 @@ def status_data() -> dict:
         "sense": raw.get("SENSE"),
         "alarmdel": raw.get("ALARMDEL"),
         "battery_date": raw.get("BATTDATE"),
+        "battery_condition": health["label"],
+        "battery_condition_code": health["code"],
+        "battery_condition_reason": health["reason"],
+        "battery_age_years": health["age_years"],
         "last_transfer": raw.get("LASTXFER"),
         "num_transfers": num(raw.get("NUMXFERS")),
         "time_on_battery": num(raw.get("TONBATT")),
@@ -266,9 +351,9 @@ def bridge_apply(changes: dict[str, str]) -> None:
 
 PAGE = r'''<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>APC UPS</title>
 <style>
-:root{color-scheme:dark;--bg:#07101f;--card:#121f35;--card2:#0f1b2e;--muted:#93a4bd;--green:#43d17d;--yellow:#f6c453;--red:#ff6b75;--blue:#5aa7ff}*{box-sizing:border-box}body{margin:0;font-family:system-ui;background:radial-gradient(circle at 20% 0,#17365d 0,transparent 32rem),var(--bg);color:#f5f7fb}.wrap{max-width:1180px;margin:auto;padding:26px 16px 50px}header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px}h1,h2{margin:0}.sub,.label{color:var(--muted)}.pill,.btn{padding:10px 14px;border-radius:99px;background:#1b2b46;font-weight:800;border:1px solid #ffffff16;color:#fff;text-decoration:none}.pill.online{color:var(--green)}.pill.batt{color:var(--yellow)}.pill.bad{color:var(--red)}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:15px}.card{background:linear-gradient(180deg,#162642,var(--card));border:1px solid #ffffff12;border-radius:19px;padding:20px}.big{font-size:32px;font-weight:800}.row{display:flex;justify-content:space-between;gap:15px;align-items:center}.battery,.bar{height:24px;border-radius:8px;background:#ffffff12;overflow:hidden;margin:18px 0}.battery i,.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--green),#55d6e8);transition:.3s}.bar i{background:var(--blue)}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#ffffff12;border-radius:14px;overflow:hidden}.stat{background:var(--card2);padding:14px;min-width:0}.stat b{display:block;margin-top:5px;font-size:17px;overflow-wrap:anywhere}.full{grid-column:1/-1}.section{margin-top:15px}.table{width:100%;border-collapse:collapse}.table td{padding:9px 8px;border-bottom:1px solid #ffffff10;vertical-align:top}.table td:first-child{color:var(--muted);width:42%}.history-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.history-card{background:#0b1628;border:1px solid #ffffff10;border-radius:14px;padding:14px;min-width:0}.history-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.history-title{font-size:18px;font-weight:800}.history-unit{color:var(--muted);font-size:13px}.history-stats{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--muted)}.history-stats b{color:#fff}.chart-wrap{position:relative;margin-top:10px}.chart{width:100%;height:220px;display:block;border-radius:10px}.chart-detail{min-height:22px;margin-top:7px;color:#dce7f6;font-size:13px;font-variant-numeric:tabular-nums}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.tabs .btn.active{background:#285ca8;border-color:#6aa7ff}.history-note{margin-top:10px}.small{font-size:13px}.error{margin-top:15px;padding:12px;border-radius:12px;background:#5a2229;display:none}.events{max-height:340px;overflow:auto}.event{padding:9px 0;border-bottom:1px solid #ffffff10;font-family:ui-monospace,monospace;font-size:13px}.outage{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.3fr;gap:8px;padding:10px 0;border-bottom:1px solid #ffffff10}.topactions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}@media(max-width:760px){.grid{grid-template-columns:1fr}.full{grid-column:auto}header{align-items:flex-start;flex-direction:column}.stats{grid-template-columns:1fr 1fr}.outage{grid-template-columns:1fr 1fr}.history-grid{grid-template-columns:1fr}.chart{height:200px}}
+:root{color-scheme:dark;--bg:#07101f;--card:#121f35;--card2:#0f1b2e;--muted:#93a4bd;--green:#43d17d;--yellow:#f6c453;--red:#ff6b75;--blue:#5aa7ff}*{box-sizing:border-box}body{margin:0;font-family:system-ui;background:radial-gradient(circle at 20% 0,#17365d 0,transparent 32rem),var(--bg);color:#f5f7fb}.wrap{max-width:1180px;margin:auto;padding:26px 16px 50px}header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:18px}h1,h2{margin:0}.sub,.label{color:var(--muted)}.pill,.btn{padding:10px 14px;border-radius:99px;background:#1b2b46;font-weight:800;border:1px solid #ffffff16;color:#fff;text-decoration:none}.pill.online{color:var(--green)}.pill.batt{color:var(--yellow)}.pill.bad{color:var(--red)}.health.good{color:var(--green)}.health.weak{color:var(--yellow)}.health.replace{color:var(--red)}.health.unknown{color:var(--muted)}.health-note{display:block;margin-top:5px;color:var(--muted);font-size:12px;line-height:1.35}.grid{display:grid;grid-template-columns:1.2fr .8fr;gap:15px}.card{background:linear-gradient(180deg,#162642,var(--card));border:1px solid #ffffff12;border-radius:19px;padding:20px}.big{font-size:32px;font-weight:800}.row{display:flex;justify-content:space-between;gap:15px;align-items:center}.battery,.bar{height:24px;border-radius:8px;background:#ffffff12;overflow:hidden;margin:18px 0}.battery i,.bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--green),#55d6e8);transition:.3s}.bar i{background:var(--blue)}.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:#ffffff12;border-radius:14px;overflow:hidden}.stat{background:var(--card2);padding:14px;min-width:0}.stat b{display:block;margin-top:5px;font-size:17px;overflow-wrap:anywhere}.full{grid-column:1/-1}.section{margin-top:15px}.table{width:100%;border-collapse:collapse}.table td{padding:9px 8px;border-bottom:1px solid #ffffff10;vertical-align:top}.table td:first-child{color:var(--muted);width:42%}.history-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}.history-card{background:#0b1628;border:1px solid #ffffff10;border-radius:14px;padding:14px;min-width:0}.history-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.history-title{font-size:18px;font-weight:800}.history-unit{color:var(--muted);font-size:13px}.history-stats{display:flex;gap:12px;flex-wrap:wrap;font-size:13px;color:var(--muted)}.history-stats b{color:#fff}.chart-wrap{position:relative;margin-top:10px}.chart{width:100%;height:220px;display:block;border-radius:10px}.chart-detail{min-height:22px;margin-top:7px;color:#dce7f6;font-size:13px;font-variant-numeric:tabular-nums}.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.tabs .btn.active{background:#285ca8;border-color:#6aa7ff}.history-note{margin-top:10px}.small{font-size:13px}.error{margin-top:15px;padding:12px;border-radius:12px;background:#5a2229;display:none}.events{max-height:340px;overflow:auto}.event{padding:9px 0;border-bottom:1px solid #ffffff10;font-family:ui-monospace,monospace;font-size:13px}.outage{display:grid;grid-template-columns:1.4fr 1fr 1fr 1.3fr;gap:8px;padding:10px 0;border-bottom:1px solid #ffffff10}.topactions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}@media(max-width:760px){.grid{grid-template-columns:1fr}.full{grid-column:auto}header{align-items:flex-start;flex-direction:column}.stats{grid-template-columns:1fr 1fr}.outage{grid-template-columns:1fr 1fr}.history-grid{grid-template-columns:1fr}.chart{height:200px}}
 </style></head><body><main class="wrap"><header><div><div class="sub">NAPÁJENÍ SERVERU</div><h1 id="model">APC UPS</h1><div class="sub" id="name">Načítám…</div></div><div class="topactions"><a class="btn" href="/admin">Nastavení</a><div class="pill" id="pill">NAČÍTÁM</div></div></header>
-<section class="grid"><article class="card"><div class="row"><div><div class="label">Baterie</div><div class="big" id="battery">—</div></div><div><div class="label">Výdrž</div><div class="big" id="runtime">—</div></div></div><div class="battery"><i id="bfill"></i></div><div class="stats"><div class="stat"><span class="label">Napětí baterie</span><b id="battv">—</b></div><div class="stat"><span class="label">Nominální</span><b id="nombattv">—</b></div><div class="stat"><span class="label">Datum baterie</span><b id="bdate">—</b></div></div></article>
+<section class="grid"><article class="card"><div class="row"><div><div class="label">Baterie</div><div class="big" id="battery">—</div></div><div><div class="label">Výdrž</div><div class="big" id="runtime">—</div></div></div><div class="battery"><i id="bfill"></i></div><div class="stats"><div class="stat"><span class="label">Napětí baterie</span><b id="battv">—</b></div><div class="stat"><span class="label">Nominální</span><b id="nombattv">—</b></div><div class="stat"><span class="label">Datum baterie</span><b id="bdate">—</b></div><div class="stat"><span class="label">Kondice baterie</span><b id="health" class="health unknown">—</b><span class="health-note" id="healthreason">—</span></div><div class="stat"><span class="label">Stáří baterie</span><b id="bage">—</b></div></div></article>
 <article class="card"><div class="row"><div><div class="label">Zatížení</div><div class="big" id="load">—</div></div><div><div class="label">Výkon</div><div class="big" id="watts">—</div></div></div><div class="bar"><i id="lfill"></i></div><div class="sub" id="maxpower">—</div></article>
 <article class="card full"><h2>Síť a UPS</h2><div class="stats section"><div class="stat"><span class="label">Síť</span><b id="linev">—</b></div><div class="stat"><span class="label">Povolené napětí</span><b id="range">—</b></div><div class="stat"><span class="label">Citlivost</span><b id="sense">—</b></div><div class="stat"><span class="label">Přechodů na baterii</span><b id="xfers">—</b></div><div class="stat"><span class="label">Právě na baterii</span><b id="tonbatt">—</b></div><div class="stat"><span class="label">Celkem na baterii</span><b id="cumonbatt">—</b></div><div class="stat"><span class="label">Poslední přechod</span><b id="last">—</b></div><div class="stat"><span class="label">Self-test</span><b id="selftest">—</b></div><div class="stat"><span class="label">Alarm</span><b id="alarmdel">—</b></div><div class="stat"><span class="label">Vypnout při baterii</span><b id="minb">—</b></div><div class="stat"><span class="label">Vypnout při výdrži</span><b id="mint">—</b></div><div class="stat"><span class="label">Timeout</span><b id="maxt">—</b></div></div></article>
 <article class="card full"><div class="row"><div><h2>Historie UPS</h2><div class="sub small">Každá veličina má vlastní graf a vlastní jednotku.</div></div><div class="tabs" id="historyTabs"><button class="btn" data-hours="6">6 h</button><button class="btn active" data-hours="24">24 h</button><button class="btn" data-hours="168">7 dní</button><button class="btn" data-hours="720">30 dní</button></div></div>
@@ -287,7 +372,7 @@ PAGE = r'''<!doctype html><html lang="cs"><head><meta charset="utf-8"><meta name
 const $=x=>document.getElementById(x),f=(v,u='')=>v==null?'—':`${v}${u}`;let historyHours=24;
 function secs(v){if(v==null)return'—';v=Math.round(v);let h=Math.floor(v/3600),m=Math.floor((v%3600)/60),s=v%60;return(h?h+' h ':'')+(m?m+' min ':'')+s+' s'}
 function esc(s){let d=document.createElement('div');d.textContent=s??'';return d.innerHTML}
-async function update(){try{let r=await fetch('/api/status',{cache:'no-store'}),j=await r.json();if(!r.ok)throw Error(j.error||'Chyba');$('model').textContent=j.model;$('name').textContent=j.name+(j.serial?' · S/N '+j.serial:'')+(j.firmware?' · FW '+j.firmware:'');let s=j.status||'UNKNOWN';$('pill').textContent=j.low_battery?'NÍZKÁ BATERIE':j.on_battery?'NA BATERII':j.online?'ONLINE':s;$('pill').className='pill '+(j.low_battery?'bad':j.on_battery?'batt':j.online?'online':'bad');$('battery').textContent=f(j.battery,' %');$('runtime').textContent=f(j.runtime,' min');$('bfill').style.width=Math.max(0,Math.min(100,j.battery||0))+'%';$('battv').textContent=f(j.battv,' V');$('nombattv').textContent=f(j.nombattv,' V');$('bdate').textContent=j.battery_date||'—';$('load').textContent=f(j.load,' %');$('watts').textContent=f(j.watts,' W');$('lfill').style.width=Math.max(0,Math.min(100,j.load||0))+'%';$('maxpower').textContent='Maximum UPS: '+f(j.power,' W');$('linev').textContent=f(j.linev,' V');$('range').textContent=(j.lowtrans==null||j.hitrans==null)?'—':j.lowtrans+'–'+j.hitrans+' V';$('sense').textContent=j.sense||'—';$('xfers').textContent=f(j.num_transfers);$('tonbatt').textContent=secs(j.time_on_battery);$('cumonbatt').textContent=secs(j.cumulative_on_battery);$('last').textContent=j.last_transfer||'—';$('selftest').textContent=j.selftest||'—';$('alarmdel').textContent=j.alarmdel||'—';$('minb').textContent=f(j.min_batt,' %');$('mint').textContent=f(j.min_time,' min');$('maxt').textContent=f(j.max_time,' s');let tb=$('raw').querySelector('tbody');tb.innerHTML='';Object.entries(j.raw||{}).forEach(([k,v])=>{let tr=document.createElement('tr'),a=document.createElement('td'),b=document.createElement('td');a.textContent=k;b.textContent=v;tr.append(a,b);tb.append(tr)});$('error').style.display='none'}catch(e){$('error').textContent='UPS: '+e.message;$('error').style.display='block'}}
+async function update(){try{let r=await fetch('/api/status',{cache:'no-store'}),j=await r.json();if(!r.ok)throw Error(j.error||'Chyba');$('model').textContent=j.model;$('name').textContent=j.name+(j.serial?' · S/N '+j.serial:'')+(j.firmware?' · FW '+j.firmware:'');let s=j.status||'UNKNOWN';$('pill').textContent=j.low_battery?'NÍZKÁ BATERIE':j.on_battery?'NA BATERII':j.online?'ONLINE':s;$('pill').className='pill '+(j.low_battery?'bad':j.on_battery?'batt':j.online?'online':'bad');$('battery').textContent=f(j.battery,' %');$('runtime').textContent=f(j.runtime,' min');$('bfill').style.width=Math.max(0,Math.min(100,j.battery||0))+'%';$('battv').textContent=f(j.battv,' V');$('nombattv').textContent=f(j.nombattv,' V');$('bdate').textContent=j.battery_date||'—';$('health').textContent=j.battery_condition||'NEZNÁMÁ';$('health').className='health '+(j.battery_condition_code||'unknown');$('healthreason').textContent=j.battery_condition_reason||'—';$('bage').textContent=j.battery_age_years==null?'—':j.battery_age_years.toFixed(1)+' roku';$('load').textContent=f(j.load,' %');$('watts').textContent=f(j.watts,' W');$('lfill').style.width=Math.max(0,Math.min(100,j.load||0))+'%';$('maxpower').textContent='Maximum UPS: '+f(j.power,' W');$('linev').textContent=f(j.linev,' V');$('range').textContent=(j.lowtrans==null||j.hitrans==null)?'—':j.lowtrans+'–'+j.hitrans+' V';$('sense').textContent=j.sense||'—';$('xfers').textContent=f(j.num_transfers);$('tonbatt').textContent=secs(j.time_on_battery);$('cumonbatt').textContent=secs(j.cumulative_on_battery);$('last').textContent=j.last_transfer||'—';$('selftest').textContent=j.selftest||'—';$('alarmdel').textContent=j.alarmdel||'—';$('minb').textContent=f(j.min_batt,' %');$('mint').textContent=f(j.min_time,' min');$('maxt').textContent=f(j.max_time,' s');let tb=$('raw').querySelector('tbody');tb.innerHTML='';Object.entries(j.raw||{}).forEach(([k,v])=>{let tr=document.createElement('tr'),a=document.createElement('td'),b=document.createElement('td');a.textContent=k;b.textContent=v;tr.append(a,b);tb.append(tr)});$('error').style.display='none'}catch(e){$('error').textContent='UPS: '+e.message;$('error').style.display='block'}}
 async function loadEvents(){try{let j=await (await fetch('/api/events',{cache:'no-store'})).json();$('events').innerHTML=(j.events||[]).map(x=>'<div class="event">'+esc(x)+'</div>').join('')||'<span class="sub">Žádné události.</span>'}catch(e){}}
 async function loadOutages(){try{let j=await (await fetch('/api/outages',{cache:'no-store'})).json();$('outages').innerHTML=(j.outages||[]).map(o=>`<div class="outage"><span>${new Date(o.started*1000).toLocaleString()}</span><span>${o.ended?secs(o.duration):'probíhá'}</span><span>${f(o.start_battery,'%')} → ${f(o.end_battery,'%')}</span><span class="sub">${esc(o.reason||'')}</span></div>`).join('')||'<span class="sub">Zatím žádný zaznamenaný výpadek.</span>'}catch(e){}}
 let historyRows=[];
