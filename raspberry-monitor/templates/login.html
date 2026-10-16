@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="cs"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark"><title>Přihlášení · Pi Monitor</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}"></head>
+<body class="login-page">
+  <div class="login-aura"></div>
+  <main class="login-card">
+    <div class="brand-mark brand-mark-lg"><span class="signal-icon">▥</span></div>
+    <div class="eyebrow">SYSTEM OBSERVABILITY</div>
+    <h1>Vítej zpět.</h1>
+    <p class="muted">Přihlas se pro bezpečný přístup ke stavu Raspberry Pi a jeho služeb.</p>
+    {% if error %}<div class="login-error" role="alert">Nesprávné přihlašovací údaje.</div>{% endif %}
+    <form method="post" action="{{ url_for('login') }}" class="login-form">
+      <label for="username">Uživatelské jméno</label>
+      <input id="username" name="username" placeholder="Uživatelské jméno" autocomplete="username" required autofocus>
+      <label for="password">Heslo</label>
+      <input id="password" name="password" type="password" placeholder="Heslo" autocomplete="current-password" required>
+      <button type="submit" class="primary-button">Přihlásit se <span aria-hidden="true">↗</span></button>
+    </form>
+    <div class="login-foot"><span class="status-dot"></span> Chráněná administrace <span class="foot-divider">·</span> Pi Monitor v1.0</div>
+  </main>
+</body></html>

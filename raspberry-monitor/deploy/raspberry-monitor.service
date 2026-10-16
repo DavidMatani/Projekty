@@ -1,0 +1,22 @@
+[Unit]
+Description=Raspberry Pi System Monitoring Dashboard
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/Projekty/raspberry-monitor
+EnvironmentFile=/etc/raspberry-monitor.env
+ExecStart=/opt/Projekty/raspberry-monitor/.venv/bin/gunicorn --bind 127.0.0.1:8003 --workers 1 --threads 4 --timeout 45 app:app
+Restart=always
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/raspberry-monitor
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

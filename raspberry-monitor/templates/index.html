@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="cs"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0a1020"><meta name="color-scheme" content="dark">
+<title>Pi Monitor · Přehled Raspberry Pi</title>
+<link rel="stylesheet" href="{{ url_for('static',filename='style.css') }}">
+<script src="{{ url_for('static',filename='app.js') }}" defer></script>
+</head>
+<body>
+<div class="app-shell">
+<aside class="sidebar" aria-label="Hlavní navigace">
+  <div class="brand"><div class="brand-mark"><span class="signal-icon">▥</span></div><div><div class="brand-name">PI MONITOR<span class="brand-dot">.</span></div><div class="brand-sub">COMMAND CENTER</div></div></div>
+  <div class="sidebar-label">PRACOVNÍ PLOCHA</div>
+  <nav class="nav-list">
+    <a class="nav-link active" href="#overview"><span class="nav-icon">◫</span> Přehled <span class="nav-arrow">↗</span></a>
+    <a class="nav-link" href="#performance"><span class="nav-icon">⌁</span> Výkon</a>
+    <a class="nav-link" href="#storage"><span class="nav-icon">▤</span> Úložiště</a>
+    <a class="nav-link" href="#docker"><span class="nav-icon">⬡</span> Docker kontejnery</a>
+    <a class="nav-link" href="#events"><span class="nav-icon">◷</span> Události</a>
+  </nav>
+  <div class="sidebar-bottom">
+    <div class="device-card"><div class="device-orb">●</div><div><strong>Raspberry Pi</strong><small id="sideHostname">Načítám zařízení…</small></div><span class="online-pulse"></span></div>
+    <div class="sidebar-meta"><span>© 2026 PI MONITOR</span><span>v1.0</span></div>
+  </div>
+</aside>
+<main class="main-content" id="overview">
+  <header class="topbar">
+    <div class="breadcrumb">MONITORING <span>/</span> <strong>PŘEHLED SYSTÉMU</strong></div>
+    <div class="top-actions">
+      <div class="live-pill"><span class="status-dot" id="liveDot"></span><span id="liveStatus">Připojování</span></div>
+      <span class="top-clock" id="clock" aria-label="Aktuální čas">--:--:--</span>
+      <form method="post" action="/logout"><button class="logout-btn" title="Odhlásit se" aria-label="Odhlásit se">↪</button></form>
+    </div>
+  </header>
+  <div class="content-width">
+    <section class="page-heading">
+      <div><div class="eyebrow"><span class="tiny-square"></span> ŽIVÝ MONITORING INFRASTRUKTURY</div>
+        <h1>Přehled systému<span class="headline-period">.</span></h1>
+        <p>Kompletní přehled o výkonu, teplotě a běžících službách na jednom místě.</p>
+      </div>
+      <div class="heading-info"><span class="heading-info-icon">◷</span><div><span>Poslední aktualizace</span><strong id="lastUpdated">Čekám na data</strong></div></div>
+    </section>
+    <section class="summary-grid" aria-label="Klíčové metriky">
+      <article class="metric-card" id="cpu-card"><div class="metric-top"><span>VYTÍŽENÍ CPU</span><span class="metric-symbol">⌘</span></div><div class="metric-main"><strong id="cpuVal">—</strong><span class="metric-unit">%</span></div><div class="progress-track"><div id="cpuBar" class="progress-fill cyan" style="width:0%"></div></div><div class="metric-bottom"><span id="cpuCaption">4 jádra procesoru</span><span class="small-status normal" id="cpuBadge">—</span></div></article>
+      <article class="metric-card" id="ram-card"><div class="metric-top"><span>OPERAČNÍ PAMĚŤ</span><span class="metric-symbol">▥</span></div><div class="metric-main"><strong id="ramVal">—</strong><span class="metric-unit">%</span></div><div class="progress-track"><div id="ramBar" class="progress-fill blue" style="width:0%"></div></div><div class="metric-bottom"><span id="ramCaption">Čekám na data</span><span class="small-status normal" id="ramBadge">—</span></div></article>
+      <article class="metric-card" id="temp-card"><div class="metric-top"><span>TEPLOTA CPU</span><span class="metric-symbol">♨</span></div><div class="metric-main"><strong id="tempVal">—</strong><span class="metric-unit">°C</span></div><div class="progress-track"><div id="tempBar" class="progress-fill purple" style="width:0%"></div></div><div class="metric-bottom"><span id="tempCaption">Termální senzor</span><span class="small-status normal" id="tempBadge">—</span></div></article>
+      <article class="metric-card" id="load-card"><div class="metric-top"><span>LOAD AVERAGE (1 MIN)</span><span class="metric-symbol">〽</span></div><div class="metric-main"><strong id="loadVal">—</strong><span class="metric-unit">/ <span id="coreCount">4</span></span></div><div class="progress-track"><div id="loadBar" class="progress-fill green" style="width:0%"></div></div><div class="metric-bottom"><span>Průměrná zátěž systému</span><span class="small-status normal" id="loadBadge">—</span></div></article>
+    </section>
+    <section class="upper-grid" id="performance">
+      <article class="panel performance-panel">
+        <div class="panel-head"><div><div class="panel-kicker">ANALYTIKA</div><h2>Historie výkonu</h2><p>Sledování vytížení procesoru, paměti a teploty</p></div>
+          <div class="range-selector" role="group" aria-label="Časové období"><button class="range-btn" data-range="1h">1 h</button><button class="range-btn selected" data-range="24h">24 h</button><button class="range-btn" data-range="7d">7 dní</button></div>
+        </div>
+        <div class="chart-key"><span><i class="key-dot cyan-bg"></i> CPU</span><span><i class="key-dot blue-bg"></i> RAM</span><span><i class="key-dot purple-bg"></i> Teplota</span></div>
+        <div class="chart-frame"><canvas id="historyChart" role="img" aria-label="Časový graf výkonu CPU, RAM a teploty">Graf historie</canvas><div class="chart-empty" id="chartEmpty">Historie se začne vykreslovat po prvním měření.</div></div>
+      </article>
+      <article class="panel core-panel"><div class="panel-head"><div><div class="panel-kicker">HARDWARE</div><h2>Jádra procesoru</h2><p>Zatížení jednotlivých jader v reálném čase</p></div><span class="panel-mark">CPU</span></div>
+        <div id="coreRows" class="core-list"><div class="muted">Čekám na data…</div></div>
+        <div class="core-footer"><div><span>Uptime</span><strong id="uptime">—</strong></div><div><span>Systém</span><strong id="systemText">—</strong></div></div>
+      </article>
+    </section>
+    <section class="lower-grid">
+      <article class="panel" id="storage"><div class="panel-head"><div><div class="panel-kicker">KAPACITA</div><h2>Úložiště</h2><p>Připojené disky a jejich obsazenost</p></div><span class="panel-mark">SSD</span></div><div id="diskRows" class="disk-list"><div class="muted">Čekám na data…</div></div></article>
+      <article class="panel"><div class="panel-head"><div><div class="panel-kicker">PŘENOS DAT</div><h2>Síťová aktivita</h2><p>Aktuální rychlost přenosu dat</p></div><span class="panel-mark">NET</span></div>
+        <div class="network-cards"><div class="network-item"><div class="network-icon down-icon">↓</div><div><span>DOWNLOAD</span><strong id="networkDown">—</strong></div></div><div class="network-item"><div class="network-icon up-icon">↑</div><div><span>UPLOAD</span><strong id="networkUp">—</strong></div></div></div>
+        <div class="network-divider"></div><div class="detail-line"><span>Celková RAM</span><strong id="memoryTotal">—</strong></div><div class="detail-line"><span>Dostupná RAM</span><strong id="memoryAvailable">—</strong></div><div class="detail-line"><span>SWAP</span><strong id="swapText">—</strong></div>
+      </article>
+    </section>
+    <section class="panel docker-panel" id="docker">
+      <div class="panel-head"><div><div class="panel-kicker">SLUŽBY</div><h2>Docker kontejnery <span class="count-bubble" id="dockerCount">0</span></h2><p>Živé využití prostředků všech spuštěných kontejnerů</p></div><div class="docker-filter">● <span id="dockerRunning">—</span> aktivních</div></div>
+      <div id="dockerError" class="inline-warning" hidden></div>
+      <div class="table-overflow"><table class="docker-table"><thead><tr><th>KONTEJNER</th><th>STAV</th><th>CPU</th><th>RAM</th><th>PROCESY</th></tr></thead><tbody id="dockerBody"><tr><td colspan="5" class="empty-row">Čekám na data…</td></tr></tbody></table></div>
+    </section>
+    <section class="panel alerts-panel" id="events"><div class="panel-head"><div><div class="panel-kicker">DIAGNOSTIKA</div><h2>Stav a události</h2><p>Upozornění při překročení nastavených mezí</p></div><span class="small-status normal" id="alertsCount">Načítám…</span></div><div id="activeAlerts" class="alerts-list"></div><div class="events-title">POSLEDNÍ UDÁLOSTI</div><div id="eventsList" class="events-list"><div class="muted">Zatím žádné události.</div></div></section>
+    <footer class="footer"><span>PI MONITOR <span class="brand-dot">·</span> Raspberry Pi Observability</span><span>Automatická aktualizace každých <span id="refreshLabel">20</span> s</span></footer>
+  </div>
+</main>
+</div>
+</body></html>
